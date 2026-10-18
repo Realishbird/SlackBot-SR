@@ -28,6 +28,7 @@ ask SLACK_BOT_TOKEN "Slack bot token (xoxb-...)" secret
 ask SLACK_APP_TOKEN "Slack app token (xapp-...)" secret
 ask DELL_CLIENT_ID "Dell TechDirect client ID (blank to skip for now)"
 if [[ -n "$DELL_CLIENT_ID" ]]; then ask DELL_CLIENT_SECRET "Dell TechDirect client secret" secret; fi
+ask ADMIN_PASSWORD "Password for the admin web page (blank to generate one)" secret
 
 echo "== Finding Debian 12 template =="
 pveam update >/dev/null
@@ -64,6 +65,9 @@ ENABLED_MODULES=*
 LOG_LEVEL=INFO
 DELL_CLIENT_ID=${DELL_CLIENT_ID:-}
 DELL_CLIENT_SECRET=${DELL_CLIENT_SECRET:-}
+ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+ADMIN_PORT=8080
+ADMIN_AUTO_UPDATE_MINUTES=30
 ENV
 pct push "$CTID" "$ENV_FILE" /root/slackbot.env --perms 600
 
@@ -71,6 +75,8 @@ echo "== Installing the bot inside the container =="
 pct exec "$CTID" -- bash -c "apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null && curl -fsSL $REPO_RAW/proxmox/install.sh | bash"
 
 echo
+IP="$(pct exec "$CTID" -- hostname -I 2>/dev/null | awk '{print $1}')"
 echo "Done. Container $CTID ($CT_NAME) is running the bot."
+echo "Admin page: http://${IP:-<container ip>}:8080  (any username; the password you entered, or the generated one printed above)"
 echo "Logs:    pct exec $CTID -- bash -c 'cd /opt/slackbot-sr && docker compose logs -f'"
 echo "Shell:   pct enter $CTID"

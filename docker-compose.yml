@@ -1,7 +1,28 @@
+# REPO_DIR must be where this folder lives on the host (default /opt/slackbot-sr):
+# the admin service mounts it at the same path so it can rebuild the bot.
 services:
   slackbot:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     image: slackbot:latest
     container_name: slackbot
     restart: unless-stopped
     env_file: .env
+
+  admin:
+    build:
+      context: .
+      dockerfile: admin/Dockerfile
+    image: slackbot-admin:latest
+    container_name: slackbot-admin
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REPO_DIR: ${REPO_DIR:-/opt/slackbot-sr}
+    ports:
+      - "${ADMIN_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${REPO_DIR:-/opt/slackbot-sr}:${REPO_DIR:-/opt/slackbot-sr}

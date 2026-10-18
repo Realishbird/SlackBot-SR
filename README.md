@@ -10,7 +10,28 @@ Talk to it three ways:
 - `@sr-bot specs 9C4BPM4` in a channel it's in (replies in a thread)
 - a DM to the bot: `specs 9C4BPM4`
 
-`/bot help` lists every loaded module.
+`/bot help` lists every loaded module. `/bot version` shows the running build.
+
+## Admin page and automatic updates
+
+The stack runs two containers: the bot and a small admin web page at
+`http://<lxc ip>:8080` (any username; password is `ADMIN_PASSWORD` in `.env`,
+generated for you by the install script if you leave it blank). From it you can:
+
+- see whether the bot is running and which commit it's on
+- check GitHub for new commits and **Update now** (pulls, rebuilds, restarts)
+- restart, stop, start or rebuild the bot
+- read the bot's logs and the update log
+- change settings (modules, tokens, Dell keys, log level) and restart the bot
+
+Updates also happen on their own: the admin checks GitHub every
+`ADMIN_AUTO_UPDATE_MINUTES` (default 30) and applies new commits on `main`.
+Set it to 0 to update only by hand. Every push to this repo therefore reaches
+the running bot within half an hour.
+
+The admin can rebuild containers because it has the Docker socket, which is
+root-level access to the LXC. Keep port 8080 on your LAN or behind a VPN and
+don't forward it to the internet.
 
 ## Hardware specs (Dell, HP, Lenovo)
 
@@ -48,6 +69,8 @@ Dell's official TechDirect API.
 Without keys the bot still starts; Dell is skipped and a warning is logged.
 
 ### Try a lookup without Slack
+
+From the LXC (or any machine with the repo and Docker):
 
 ```sh
 docker compose run --rm slackbot python -m bot.cli specs PF2ABCDE
@@ -123,9 +146,13 @@ docker compose logs -f
 ```
 
 You should see `Loaded module specs` and `A new session has been established`.
-The container restarts on its own after reboots (`restart: unless-stopped`).
+Both containers restart on their own after reboots (`restart: unless-stopped`).
 
-To update: `git pull && docker compose up -d --build`.
+If the repo isn't at `/opt/slackbot-sr`, set `REPO_DIR=/where/it/is` in
+`.env` so the admin container can find it.
+
+To update by hand: `git pull && docker compose up -d --build`, or click
+**Update now** on the admin page.
 
 ## Add a hardware vendor
 

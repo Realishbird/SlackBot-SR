@@ -42,8 +42,20 @@ if [[ ! -f .env ]]; then
   fi
   chmod 600 .env
 fi
+if ! grep -q '^ADMIN_PASSWORD=.\+' .env; then
+  ADMIN_PASSWORD="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+  sed -i '/^ADMIN_PASSWORD=/d' .env
+  printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD" >> .env
+  echo "Generated admin password: $ADMIN_PASSWORD (saved in $DIR/.env)"
+fi
+grep -q '^ADMIN_AUTO_UPDATE_MINUTES=' .env || echo 'ADMIN_AUTO_UPDATE_MINUTES=30' >> .env
+GIT_COMMIT="$(git rev-parse --short HEAD)"
+export GIT_COMMIT
+export REPO_DIR="$DIR"
 
 echo "== Starting the bot =="
 docker compose up -d --build
 docker compose ps
-echo "Done. Logs: cd $DIR && docker compose logs -f"
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+echo "Done. Admin page: http://${IP:-<this host>}:$(grep -oP '^ADMIN_PORT=\K.*' .env || echo 8080)  (any username, password from $DIR/.env)"
+echo "Logs: cd $DIR && docker compose logs -f"

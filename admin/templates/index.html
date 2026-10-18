@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sr-bot admin</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#6b7280; --line:#e5e7eb; --ok:#15803d; --warn:#b45309; --bad:#b91c1c; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#111317; --card:#1a1d23; --text:#e5e7eb; --muted:#9ca3af; --line:#2a2f3a; --accent:#60a5fa; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:8px 0 16px; display:flex; justify-content:space-between; align-items:baseline; }
+  h1 small { color:var(--muted); font-weight:normal; font-size:13px; }
+  h2 { font-size:15px; margin:0 0 10px; }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card.wide { grid-column:1 / -1; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:5px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; }
+  .row span:last-child { text-align:right; color:var(--muted); }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  button { font:inherit; padding:7px 12px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--text); cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  pre { background:#0b0d11; color:#d1d5db; padding:10px; border-radius:8px; font-size:12px; max-height:360px; overflow:auto; white-space:pre-wrap; margin:0; }
+  #msg { margin:10px 0; padding:8px 12px; border-radius:8px; background:var(--bg); border:1px solid var(--line); min-height:38px; }
+  label { display:block; font-size:13px; color:var(--muted); margin-top:10px; }
+  input { width:100%; font:inherit; padding:7px 9px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  code { font-size:13px; }
+  ul { margin:4px 0; padding-left:18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>sr-bot admin <small id="clock"></small></h1>
+  <div id="msg">Loading…</div>
+  <div class="grid">
+    <section class="card">
+      <h2>Bot</h2>
+      <div id="containers"></div>
+      <div class="actions">
+        <button onclick="act('restart')">Restart</button>
+        <button onclick="act('stop')">Stop</button>
+        <button onclick="act('start')">Start</button>
+        <button onclick="act('rebuild')" title="Rebuild the image from the current code">Rebuild</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Code</h2>
+      <div id="code"></div>
+      <div class="actions">
+        <button onclick="act('check')">Check for updates</button>
+        <button class="primary" onclick="act('update')">Update now</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Modules</h2>
+      <div id="modules"></div>
+    </section>
+    <section class="card">
+      <h2>Settings</h2>
+      <form id="settings" onsubmit="save(event)"></form>
+    </section>
+    <section class="card wide">
+      <h2>Bot logs <button style="float:right" onclick="loadLogs()">Refresh</button></h2>
+      <pre id="logs"></pre>
+    </section>
+    <section class="card wide">
+      <h2>Update log</h2>
+      <pre id="updatelog"></pre>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let settingsDrawn = false;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({message: r.statusText}));
+  if (!r.ok && !data.message) data.message = 'Request failed (' + r.status + ')';
+  return data;
+}
+
+function say(text, cls) { $('msg').textContent = text; $('msg').className = cls || ''; }
+
+async function refresh() {
+  let s;
+  try { s = await api('/api/status'); } catch (e) { say('Admin not reachable (it may be restarting)…', 'warn'); return; }
+  $('clock').textContent = s.time;
+  $('containers').innerHTML = s.containers.length ? s.containers.map(c =>
+    `<div class="row"><span>${esc(c.service)}</span><span class="${c.state === 'running' ? 'ok' : 'bad'}">${esc(c.status || c.state)}</span></div>`).join('')
+    : '<div class="row"><span>No containers found</span></div>';
+  const l = s.local, r = s.remote || {};
+  let codeHtml = `<div class="row"><span>Running</span><span><code>${esc(l.sha)}</code> ${esc(l.date)}<br>${esc(l.message)}</span></div>`;
+  if (r.error) codeHtml += `<div class="row"><span>GitHub</span><span class="bad">unreachable</span></div>`;
+  else if (r.sha) codeHtml += `<div class="row"><span>Latest</span><span class="${r.behind ? 'warn' : 'ok'}">${r.behind ? r.behind + ' new commit(s): ' : 'up to date '}<code>${esc(r.sha)}</code><br>${esc(r.message)}</span></div>`;
+  codeHtml += `<div class="row"><span>Auto-update</span><span>${s.auto_update_minutes ? 'every ' + s.auto_update_minutes + ' min' : 'off'}${s.last_check ? '<br>last check ' + esc(s.last_check) : ''}</span></div>`;
+  $('code').innerHTML = codeHtml;
+  const m = s.modules;
+  $('modules').innerHTML = `<div class="row"><span>Enabled</span><span><code>${esc(m.enabled)}</code></span></div>` +
+    `<div class="row"><span>Modules</span><span>${m.modules.map(esc).join(', ')}</span></div>` +
+    `<div class="row"><span>Vendors</span><span>${m.vendors.map(v => esc(v) + (m.notes[v] ? ' <span class="warn">(' + esc(m.notes[v]) + ')</span>' : '')).join(', ')}</span></div>`;
+  if (!settingsDrawn) {
+    $('settings').innerHTML = s.settings.map(f =>
+      `<label>${esc(f.label)}<input name="${esc(f.key)}" value="${esc(f.value)}" ${f.secret ? 'autocomplete="off" placeholder="unchanged"' : ''}></label>`).join('') +
+      '<div class="actions"><button class="primary">Save and restart bot</button></div>';
+    settingsDrawn = true;
+  }
+  $('updatelog').textContent = s.update_log || 'No updates run yet.';
+  if (s.last_action && $('msg').dataset.busy !== '1') say(s.last_action + (s.last_action_at ? ' (' + s.last_action_at + ')' : ''));
+}
+
+async function loadLogs() {
+  try { const d = await api('/api/logs?lines=200'); $('logs').textContent = d.logs || '(no output)'; $('logs').scrollTop = $('logs').scrollHeight; } catch (e) {}
+}
+
+async function act(name, body) {
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  $('msg').dataset.busy = '1';
+  say('Running ' + name + '…');
+  try {
+    const d = await api('/api/action/' + name, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    say(d.message, d.ok ? 'ok' : 'bad');
+  } catch (e) { say('Admin restarting or unreachable; refresh in a moment.', 'warn'); }
+  $('msg').dataset.busy = '0';
+  document.querySelectorAll('button').forEach(b => b.disabled = false);
+  setTimeout(() => { refresh(); loadLogs(); }, 1500);
+}
+
+function save(ev) {
+  ev.preventDefault();
+  const body = {};
+  new FormData(ev.target).forEach((v, k) => body[k] = v);
+  act('save', body);
+}
+
+refresh(); loadLogs();
+setInterval(refresh, 10000);
+setInterval(loadLogs, 15000);
+</script>
+</body>
+</html>

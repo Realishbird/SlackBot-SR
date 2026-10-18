@@ -7,6 +7,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY bot ./bot
+ARG GIT_COMMIT=unknown
+ENV GIT_COMMIT=$GIT_COMMIT
 RUN useradd --create-home --uid 1000 bot
 USER bot
 

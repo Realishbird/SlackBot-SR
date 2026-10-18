@@ -17,6 +17,7 @@ class Module:
     aliases: tuple[str, ...] = ()
     summary: str = ""          # one line shown in `help`
     usage: str = ""            # e.g. "dell <service tag>"
+    pass_keyword: bool = False  # True: handle() gets "<word used> <args>"
 
     def setup(self) -> None:
         """Called once at startup; read config here. Raise to disable."""

@@ -1,4 +1,4 @@
-# Slack helper bot
+# sr-bot
 
 A small, modular Slack bot that runs in one container. It connects to Slack
 over Socket Mode, so it needs outbound internet only: no public IP, port
@@ -6,24 +6,38 @@ forward or reverse proxy.
 
 Talk to it three ways:
 
-- `/bot dell 9C4BPM4`
-- `@sr-bot dell 9C4BPM4` in a channel it's in (replies in a thread)
-- a DM to the bot: `dell 9C4BPM4`
+- `/bot specs 9C4BPM4`
+- `@sr-bot specs 9C4BPM4` in a channel it's in (replies in a thread)
+- a DM to the bot: `specs 9C4BPM4`
 
 `/bot help` lists every loaded module.
 
-## Modules
+## Hardware specs (Dell, HP, Lenovo)
 
-| Keyword | What it does | Needs |
+`specs <serial>` returns the factory configuration for a system: model, ship
+date and warranty end where the vendor provides them, then CPUs, memory,
+storage, RAID, graphics, display, network, power and management parts,
+grouped and counted. Up to 5 serials per message, separated by spaces or
+commas.
+
+`specs` guesses the vendor from the serial's shape (Dell 7 characters, Lenovo
+8, HP 10) and falls back to asking the others. To ask one vendor directly:
+`dell <service tag>`, `hp <serial>` (or `hpe`), `lenovo <serial>`.
+
+| Vendor | Source | Needs |
 |---|---|---|
-| `help` | Lists modules | nothing |
-| `dell` (aliases `tag`, `servicetag`) | Factory hardware summary for up to 5 service tags: model, ship date, warranty end, CPUs, memory, drives, RAID, NICs, GPUs, PSUs, iDRAC | Dell TechDirect API keys |
+| Dell | TechDirect API (the data behind "Original configuration") | API keys, see below |
+| Lenovo | pcsupport.lenovo.com + PSREF spec sheets | nothing |
+| HP / HPE | PartSurfer serial search (factory BOM) | nothing |
+
+The Lenovo and HP lookups read public support pages that aren't official
+APIs, so a site redesign can break them. Consumer HP models often have no BOM
+in PartSurfer, in which case only the model is shown.
 
 ### Dell API keys
 
-Dell's support website blocks automated requests, so the `dell` module uses
-Dell's official TechDirect API, which serves the same "Original configuration"
-data the website shows.
+Dell's support website blocks automated requests, so the Dell lookup uses
+Dell's official TechDirect API.
 
 1. Sign in at https://techdirect.dell.com and open **APIs**.
 2. Request the **Warranty** API (asset entitlements and asset components).
@@ -31,8 +45,13 @@ data the website shows.
 3. Put the client ID and secret into `.env` as `DELL_CLIENT_ID` and
    `DELL_CLIENT_SECRET`.
 
-Without keys the bot still starts; the `dell` module is skipped and a warning
-is logged.
+Without keys the bot still starts; Dell is skipped and a warning is logged.
+
+### Try a lookup without Slack
+
+```sh
+docker compose run --rm slackbot python -m bot.cli specs PF2ABCDE
+```
 
 ## Create the Slack app
 
@@ -103,14 +122,42 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-You should see `Loaded module dell` and `A new session has been established`.
+You should see `Loaded module specs` and `A new session has been established`.
 The container restarts on its own after reboots (`restart: unless-stopped`).
 
 To update: `git pull && docker compose up -d --build`.
 
+## Add a hardware vendor
+
+Drop a file in `bot/vendors/` with a `Vendor` subclass. It gets its own
+command (`/bot <keyword> <serial>`) and joins `specs` automatically:
+
+```python
+# bot/vendors/acme.py
+import httpx
+from bot.vendors.base import NotFound, SystemSpecs, Vendor
+
+class Acme(Vendor):
+    keyword = "acme"
+    name = "Acme"
+    serial_hint = "serial number"
+
+    def looks_like(self, serial):
+        return serial.startswith("AC")   # helps `specs` try Acme first
+
+    def lookup(self, serial):
+        data = httpx.get(f"https://support.acme.example/api/{serial}").json()
+        if not data:
+            raise NotFound(serial)
+        specs = SystemSpecs(vendor=self.name, serial=serial, model=data["model"])
+        for part in data["parts"]:
+            specs.add(part["description"], part.get("qty", 1))  # auto-grouped
+        return specs
+```
+
 ## Add a module
 
-Drop a file in `bot/modules/`. Any `Module` subclass there is loaded
+For anything that isn't a hardware lookup, drop a file in `bot/modules/`. Any `Module` subclass there is loaded
 automatically at startup:
 
 ```python
@@ -133,7 +180,7 @@ class Ping(Module):
 `handle` gets everything after the keyword. Return plain `text`, and
 optionally Slack `blocks` for richer formatting. Exceptions are caught and
 reported in Slack without crashing the bot. Limit what loads with
-`ENABLED_MODULES=dell,ping`.
+`ENABLED_MODULES=specs,ping`.
 
 ## Run tests
 

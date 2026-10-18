@@ -7,7 +7,7 @@ features:
   slash_commands:
     - command: /bot
       description: Run a bot module (try /bot help)
-      usage_hint: dell 9C4BPM4
+      usage_hint: specs 9C4BPM4
   app_home:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false

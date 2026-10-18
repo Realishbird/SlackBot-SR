@@ -46,6 +46,8 @@ class Registry:
         if module is None:
             module = self._lookup["help"]
             args = ""
+        if module.pass_keyword:
+            args = f"{keyword.lower()} {args}"
         try:
             return module.handle(args.strip(), user_id)
         except Exception:

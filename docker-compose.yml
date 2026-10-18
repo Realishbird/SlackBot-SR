@@ -1,0 +1,7 @@
+services:
+  slackbot:
+    build: .
+    image: slackbot:latest
+    container_name: slackbot
+    restart: unless-stopped
+    env_file: .env

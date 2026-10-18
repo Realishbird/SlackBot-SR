@@ -47,7 +47,7 @@ commas.
 
 | Vendor | Source | Needs |
 |---|---|---|
-| Dell | Support site's "Original Configuration" (order SKUs); TechDirect API when keys are set | nothing (API keys add ship date and warranty) |
+| Dell | Support site's "Original Configuration" (order SKUs) plus its warranty widget, fetched through a hidden Chromium in the container; TechDirect API when keys are set | nothing (about 1 GB of free RAM for the browser; API keys add ship date and skip the browser) |
 | Lenovo | pcsupport.lenovo.com + PSREF spec sheets | nothing |
 | HP / HPE | PartSurfer's JSON backend (the unit's factory configuration); HPE's PartSurfer pages as fallback | nothing |
 
@@ -58,12 +58,25 @@ requests go through `curl_cffi`, which presents a real Chrome TLS fingerprint.
 HP packaging, labels, cables and firmware placeholders are filtered out of
 the list.
 
-### Dell API keys (optional)
+### Dell without API keys: the hidden browser
 
 Without keys, Dell lookups read the same "Original Configuration" list the
 support site shows under Parts & Repairs: processor, memory, drives, graphics,
-network, power supply and OS, grouped by Dell's order SKU families. That
-page gives no warranty or ship date.
+network, power supply and OS, grouped by Dell's order SKU families, plus the
+service end date from the warranty widget.
+
+Dell's bot protection (Akamai) refuses that page unless its JavaScript has
+run in a real browser, so the bot image ships a headless Chromium (Playwright)
+that is used for Dell only. Each Dell lookup opens the support home in it,
+lets the page settle, fetches the configuration from inside the page and
+closes the browser again. That takes 5 to 15 seconds and about 300 MB of RAM
+while it runs, so give the LXC at least 1.5 GB (`pct set <ctid> --memory 1536`
+on the Proxmox host; the installer now defaults to that and an 8 GB disk).
+Set `DELL_BROWSER=off` (on the admin page) to skip it; Dell lookups then
+answer with a "blocked" message unless API keys are set. Dell can change its
+protection at any time; if lookups start failing, run the probe below.
+
+### Dell API keys (optional)
 
 With TechDirect API keys the Dell lookup switches to Dell's official API,
 which adds ship date and warranty end:
@@ -80,6 +93,12 @@ From the LXC (or any machine with the repo and Docker):
 
 ```sh
 docker compose run --rm slackbot python -m bot.cli specs PF2ABCDE
+```
+
+To see where a Dell lookup fails (plain request, then the hidden browser):
+
+```sh
+docker compose run --rm slackbot python -m bot.probe 9C4BPM4
 ```
 
 ## Create the Slack app
@@ -106,7 +125,7 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/
 ```
 
 It asks for your Slack tokens (and Dell keys, optional), creates an
-unprivileged Debian 12 LXC with nesting enabled (1 core, 512 MB RAM, 4 GB disk,
+unprivileged Debian 12 LXC with nesting enabled (1 core, 1.5 GB RAM, 8 GB disk,
 DHCP on `vmbr0`, starts on boot), installs Docker inside it, clones this repo
 to `/opt/slackbot-sr` and starts the bot. Change defaults by setting them in
 front of the command, for example `STORAGE=local-zfs BRIDGE=vmbr1 CTID=150`.
@@ -126,8 +145,8 @@ Pick one. Both run the same `docker compose` stack.
 
 **Option A: Debian LXC with Docker (lightest)**
 
-1. In Proxmox, create a container from the Debian 12 template (1 core, 512 MB
-   RAM, 4 GB disk is plenty). Under **Options > Features**, enable `nesting`
+1. In Proxmox, create a container from the Debian 12 template (1 core, 1.5 GB
+   RAM, 8 GB disk; the RAM is for Dell's hidden browser). Under **Options > Features**, enable `nesting`
    (and `keyctl` if the container is unprivileged).
 2. Start it, open the console and install Docker:
    ```sh

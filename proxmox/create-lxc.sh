@@ -10,8 +10,8 @@ CT_NAME="${CT_NAME:-slackbot}"
 STORAGE="${STORAGE:-local-lvm}"          # where the container disk goes
 TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-local}"
 BRIDGE="${BRIDGE:-vmbr0}"
-DISK_GB="${DISK_GB:-4}"
-MEMORY_MB="${MEMORY_MB:-512}"
+DISK_GB="${DISK_GB:-8}"
+MEMORY_MB="${MEMORY_MB:-1536}"   # Dell lookups run a hidden Chromium, which needs ~1 GB headroom
 CORES="${CORES:-1}"
 
 command -v pct >/dev/null || { echo "Run this on the Proxmox host (pct not found)." >&2; exit 1; }

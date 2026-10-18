@@ -4,26 +4,42 @@ Without API keys (default): Dell's support site exposes the "Original
 Configuration" of a service tag at
 /support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration. It
 returns an HTML fragment with a `var OriginalConfigData = [...]` JSON blob:
-one entry per order SKU (338-xxxx processor, 370-xxxx memory, ...). No
-warranty data comes with it; the warranty widget needs a browser session.
+one entry per order SKU (338-xxxx processor, 370-xxxx memory, ...).
+
+Dell's bot protection (Akamai) refuses that call unless its JavaScript sensor
+has run, so when a plain request gets 403 the lookup repeats it from inside a
+hidden Chromium (see bot/vendors/browser.py). The browser session also lets
+us ask the warranty widget's backend for the service end date.
 
 With TechDirect API keys (DELL_CLIENT_ID / DELL_CLIENT_SECRET): the official
 asset-components and asset-entitlements endpoints, which add ship date and
 warranty end. Get keys at https://techdirect.dell.com (APIs > Warranty).
 """
 import json
+import logging
 import re
 import time
+from datetime import datetime
 
 import httpx
 
 from bot.config import env
+from bot.vendors import browser
 from bot.vendors.base import Blocked, NotFound, SystemSpecs, Vendor, categorize
 from bot.vendors.http import make_client
+
+log = logging.getLogger(__name__)
 
 SUPPORT = "https://www.dell.com"
 CONFIG_URL = f"{SUPPORT}/support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration"
 WARMUP_URL = f"{SUPPORT}/support/home/en-us"
+# Warranty widget backend: encode the tag, then ask for the entitlement.
+ENC_URL = f"{SUPPORT}/support/components/detectproduct/encvalue/{{tag}}?appname=warranty"
+WARRANTY_URL = f"{SUPPORT}/support/contractservices/en-us/entitlement/contractservicesapi/v1"
+BLOCKED_MSG = ("Dell's website blocked the lookup (its bot protection wants a real browser). "
+               "Add Dell TechDirect API keys on the admin page to look up Dell tags.")
+BROWSER_BLOCKED_MSG = ("Dell's bot protection blocked the lookup even from the bot's built-in browser. "
+                       "Try again in a minute; if it keeps happening, add Dell TechDirect API keys on the admin page.")
 # Mimic the XHR the Parts & Repairs page makes.
 SITE_HEADERS = {
     "Referer": f"{SUPPORT}/support/home/en-us",
@@ -126,6 +142,20 @@ def parse_site(page: str, tag: str) -> SystemSpecs | None:
     return specs
 
 
+def parse_warranty(data: dict) -> tuple[str, str]:
+    """(end date ISO, service name) from the contractservices entitlement reply."""
+    if str(data.get("warrantyResponseCode") or "") not in ("200", "") and not data.get("warrantyEndDate"):
+        return "", ""
+    end = str(data.get("warrantyEndDate") or "").strip()
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            end = datetime.strptime(end[:19], fmt).date().isoformat()
+            break
+        except ValueError:
+            continue
+    return end, str(data.get("warrantyDisplayName") or data.get("warrantyType") or "").strip()
+
+
 class DellClient:
     """TechDirect API (only used when keys are configured)."""
 
@@ -167,15 +197,21 @@ class Dell(Vendor):
     name = "Dell"
     serial_hint = "service tag"
 
-    def __init__(self, client: DellClient | None = None, http=None) -> None:
+    def __init__(self, client: DellClient | None = None, http=None, browser_=None) -> None:
         self.client = client
         self.http = http
+        self.browser = browser_  # bot.vendors.browser.Browser, or None when unavailable/off
 
     def setup(self) -> None:
         if self.client is None and env("DELL_CLIENT_ID") and env("DELL_CLIENT_SECRET"):
             self.client = DellClient(env("DELL_CLIENT_ID"), env("DELL_CLIENT_SECRET"), env("DELL_API_BASE", "https://apigtwb2c.us.dell.com"))
         if self.http is None:
             self.http = make_client()
+        if self.browser is None and env("DELL_BROWSER", "auto").lower() not in ("off", "0", "false", "no"):
+            if browser.available():
+                self.browser = browser.Browser()
+            else:
+                log.info("dell: Playwright not installed, no browser fallback")
 
     def looks_like(self, serial: str) -> bool:
         return bool(re.fullmatch(r"[A-Z0-9]{7}", serial))
@@ -187,19 +223,69 @@ class Dell(Vendor):
     def _lookup_site(self, tag: str) -> SystemSpecs:
         params = {"serviceTag": tag, "showOriginalConfig": "true", "showCurrentConfig": "true"}
         r = self.http.get(CONFIG_URL, params=params, headers=SITE_HEADERS)
-        if r.status_code == 403:
+        if r.status_code == 403 and self.browser is None:
             # Dell's edge (Akamai) wants the cookies a normal page view sets
             # before it answers the XHR. Load the support home, then retry.
             self.warm_up()
             r = self.http.get(CONFIG_URL, params=params, headers=SITE_HEADERS)
         if r.status_code == 403:
-            raise Blocked("Dell's website blocked the lookup (its bot protection wants a real browser). "
-                          "Add Dell TechDirect API keys on the admin page to look up Dell tags.")
+            if self.browser is None:
+                raise Blocked(BLOCKED_MSG)
+            log.info("dell: plain request for %s got 403, switching to the browser", tag)
+            return self._lookup_browser(tag)
         r.raise_for_status()
         specs = parse_site(r.text, tag)
         if specs is None:
             raise NotFound(tag)
         return specs
+
+    # ---- support site through the hidden browser ----
+    def _lookup_browser(self, tag: str) -> SystemSpecs:
+        with self.browser.open(WARMUP_URL) as s:
+            r = self.fetch_config(s, tag)
+            if r.status == 403:
+                raise Blocked(BROWSER_BLOCKED_MSG)
+            if r.status >= 400:
+                raise RuntimeError(f"Dell support site answered HTTP {r.status}")
+            specs = parse_site(r.text, tag)
+            if specs is None:
+                raise NotFound(tag)
+            try:
+                specs.warranty_end, service = self.fetch_warranty(s, tag)
+                if service and specs.warranty_end:
+                    specs.warranty_end = f"{specs.warranty_end} ({service})"
+            except Exception as exc:  # warranty is a bonus; never fail the lookup over it
+                log.info("dell: warranty lookup for %s failed: %r", tag, exc)
+        return specs
+
+    @staticmethod
+    def fetch_config(s, tag: str):
+        """GET the Original Configuration from inside the page; retry while the
+        sensor is still earning its cookie (first calls sometimes get 403)."""
+        url = f"{CONFIG_URL}?serviceTag={tag}&showOriginalConfig=true&showCurrentConfig=true"
+        headers = {"Accept": "text/html, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}
+        r = s.get(url, headers=headers)
+        for _ in range(3):
+            if r.status != 403:
+                break
+            s.nudge()
+            s.wait(2500)
+            r = s.get(url, headers=headers)
+        return r
+
+    @staticmethod
+    def fetch_warranty(s, tag: str) -> tuple[str, str]:
+        enc = s.get(ENC_URL.format(tag=tag), headers={"Accept": "application/json, text/plain, */*"})
+        if enc.status != 200:
+            return "", ""
+        token = enc.text.strip().strip('"')
+        if not token or token.lower().startswith("<"):
+            return "", ""
+        r = s.post(WARRANTY_URL, {"assetFormat": "servicetag", "assetId": token, "appName": "home"},
+                   headers={"Accept": "application/json, text/plain, */*"})
+        if r.status != 200:
+            return "", ""
+        return parse_warranty(r.json())
 
     def warm_up(self):
         try:

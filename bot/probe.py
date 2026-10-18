@@ -1,22 +1,26 @@
-"""Diagnose a vendor lookup step by step, printing HTTP statuses.
+"""Diagnose the Dell lookup step by step, printing HTTP statuses.
 
     docker compose run --rm slackbot python -m bot.probe 9C4BPM4
 """
 import sys
+import time
 
-from bot.vendors.dell import CONFIG_URL, PAGE_HEADERS, SITE_HEADERS, WARMUP_URL, extract_config
+from bot.vendors import browser
+from bot.vendors.dell import CONFIG_URL, PAGE_HEADERS, SITE_HEADERS, WARMUP_URL, Dell, extract_config
 from bot.vendors.http import make_client
 
 
-def status(label: str, r) -> None:
-    ct = r.headers.get("content-type", "")
-    body = r.text or ""
+def status(label: str, code: int, body: str, ct: str = "") -> None:
     hint = ""
     if "Access Denied" in body[:400]:
         hint = "  <- Akamai Access Denied page"
     elif "OriginalConfigData" in body:
         hint = f"  <- config found, {len(extract_config(body))} SKUs"
-    print(f"{label}: HTTP {r.status_code}, {len(body)} bytes, {ct[:40]}{hint}")
+    print(f"{label}: HTTP {code}, {len(body)} bytes, {ct[:40]}{hint}", flush=True)
+
+
+def http_status(label: str, r) -> None:
+    status(label, r.status_code, r.text or "", r.headers.get("content-type", ""))
 
 
 def main() -> None:
@@ -25,17 +29,27 @@ def main() -> None:
     print(f"client: {type(http).__module__}.{type(http).__name__}")
     params = {"serviceTag": tag, "showOriginalConfig": "true", "showCurrentConfig": "true"}
 
-    status("1. config call, cold", http.get(CONFIG_URL, params=params, headers=SITE_HEADERS))
-    status("2. warm-up page   ", http.get(WARMUP_URL, headers=PAGE_HEADERS))
-    jar = getattr(http, "cookies", None)
+    http_status("1. config call, cold", http.get(CONFIG_URL, params=params, headers=SITE_HEADERS))
+    http_status("2. warm-up page   ", http.get(WARMUP_URL, headers=PAGE_HEADERS))
+    http_status("3. config call, warm", http.get(CONFIG_URL, params=params, headers=SITE_HEADERS))
+
+    if not browser.available():
+        print("4. browser: Playwright is not installed in this image")
+        return
+    print("4. browser: launching Chromium ...", flush=True)
+    t0 = time.time()
     try:
-        names = sorted({c.name for c in jar.jar}) if hasattr(jar, "jar") else sorted(jar.keys())
-    except Exception:
-        names = ["?"]
-    print(f"   cookies now: {', '.join(names) or 'none'}")
-    status("3. config call, warm", http.get(CONFIG_URL, params=params, headers=SITE_HEADERS))
-    status("4. product page    ", http.get(f"https://www.dell.com/support/home/en-us/product-support/servicetag/{tag}/overview", headers=PAGE_HEADERS))
-    status("5. config call again", http.get(CONFIG_URL, params=params, headers=SITE_HEADERS))
+        with browser.Browser().open(WARMUP_URL) as s:
+            print(f"   page loaded in {time.time() - t0:.1f}s, cookies: {', '.join(s.cookies()) or 'none'}")
+            r = Dell.fetch_config(s, tag)
+            status("5. config via browser", r.status, r.text)
+            enc = s.get(f"https://www.dell.com/support/components/detectproduct/encvalue/{tag}?appname=warranty")
+            status("6. warranty token   ", enc.status, enc.text)
+            end, service = Dell.fetch_warranty(s, tag)
+            print(f"7. warranty: {end or 'none'} {service}")
+    except Exception as exc:
+        print(f"   browser failed: {type(exc).__name__}: {str(exc)[:300]}")
+    print(f"   total {time.time() - t0:.1f}s")
 
 
 if __name__ == "__main__":

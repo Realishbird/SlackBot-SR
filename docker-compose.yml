@@ -9,6 +9,7 @@ services:
     image: slackbot:latest
     container_name: slackbot
     restart: unless-stopped
+    init: true          # reaps Chromium helper processes left by Dell lookups
     env_file: .env
 
   admin:

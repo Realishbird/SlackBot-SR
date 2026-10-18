@@ -37,6 +37,7 @@ EDITABLE = [
     ("SLACK_APP_TOKEN", "Slack app token (xapp-...)"),
     ("DELL_CLIENT_ID", "Dell TechDirect client ID"),
     ("DELL_CLIENT_SECRET", "Dell TechDirect client secret"),
+    ("DELL_BROWSER", "Dell: use the built-in hidden Chromium when no API keys (auto or off)"),
     ("ADMIN_AUTO_UPDATE_MINUTES", "Auto-update check interval in minutes (0 = off)"),
 ]
 
@@ -153,7 +154,10 @@ def modules() -> dict:
     vendors = sorted(p.stem for p in (REPO_DIR / "bot" / "vendors").glob("*.py") if p.stem not in ("__init__", "base"))
     notes = {}
     if "dell" in vendors and not (env.get("DELL_CLIENT_ID") and env.get("DELL_CLIENT_SECRET")):
-        notes["dell"] = "no API keys: specs only, no warranty dates"
+        if env.get("DELL_BROWSER", "auto").strip().lower() in ("off", "0", "false", "no"):
+            notes["dell"] = "no API keys and browser off: Dell lookups will be blocked"
+        else:
+            notes["dell"] = "no API keys: lookups run through the built-in browser"
     return {"enabled": enabled, "modules": found, "vendors": vendors, "notes": notes}
 
 

@@ -7,7 +7,8 @@ from bot.modules.help import Help
 from bot.modules.specs import Specs
 from bot.registry import Registry
 from bot.vendors.base import NotFound, SystemSpecs, Vendor, categorize
-from bot.vendors.dell import Dell, DellClient
+from bot.vendors import browser
+from bot.vendors.dell import Dell, DellClient, parse_warranty
 from bot.vendors.hp import HP
 from bot.vendors.lenovo import Lenovo
 
@@ -137,6 +138,49 @@ def fake_dell_site(cold_403=False):
     return Dell(http=mock(handler))
 
 
+DELL_WARRANTY_SITE = {"warrantyDisplayName": "ProSupport", "warrantyEndDate": "September 24, 2029",
+                      "warrantyStartDate": "September 23, 2026", "warrantyResponseCode": "200", "warrantyType": "PROSUPPORT"}
+
+
+class FakeBrowser:
+    """Stands in for bot.vendors.browser.Browser: same open()/get()/post() surface."""
+
+    def __init__(self, deny_first=0, deny_all=False):
+        self.deny_first, self.deny_all, self.calls, self.opened = deny_first, deny_all, [], []
+
+    def open(self, url):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def cm():
+            self.opened.append(url)
+            yield self
+        return cm()
+
+    def wait(self, ms): pass
+    def nudge(self): pass
+    def cookies(self): return ["_abck", "bm_sz"]
+
+    def get(self, url, headers=None):
+        self.calls.append(("GET", url))
+        if self.deny_all or len([c for c in self.calls if "GetOriginalConfiguration" in c[1]]) <= self.deny_first:
+            return browser.Response(403, "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD></HTML>")
+        if "GetOriginalConfiguration" in url:
+            return browser.Response(200, DELL_SITE_HTML if "serviceTag=9C4BPM4" in url else DELL_SITE_EMPTY)
+        if "encvalue" in url:
+            return browser.Response(200, '"0-dGVzdA=="')
+        return browser.Response(404, "")
+
+    def post(self, url, body, headers=None):
+        self.calls.append(("POST", url))
+        assert body == {"assetFormat": "servicetag", "assetId": "0-dGVzdA==", "appName": "home"}
+        return browser.Response(200, json.dumps(DELL_WARRANTY_SITE))
+
+
+def dell_blocked_http():
+    return mock(lambda req: httpx.Response(403, text="Access Denied"))
+
+
 def fake_lenovo():
     def handler(request: httpx.Request) -> httpx.Response:
         if "getproducts" in request.url.path:
@@ -205,6 +249,36 @@ def test_dell_without_keys_uses_support_site():
 def test_dell_site_warms_up_after_403():
     text = bot(fake_dell_site(cold_403=True)).dispatch("dell 9C4BPM4", "U1").text
     assert "Pro Precision 9 T2" in text
+
+
+def test_dell_falls_back_to_browser_when_blocked():
+    fake = FakeBrowser(deny_first=1)  # first in-page call still 403 while the sensor settles
+    text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
+    assert fake.opened == ["https://www.dell.com/support/home/en-us"]
+    assert "*Dell Dell Pro Precision 9 T2 (PW9T2260)*" in text
+    assert "Intel Xeon 658X" in text
+    assert "Warranty until: 2029-09-24 (ProSupport)" in text
+    assert sum(1 for m, u in fake.calls if "GetOriginalConfiguration" in u) == 2
+    assert "No match" in bot(Dell(http=dell_blocked_http(), browser_=FakeBrowser())).dispatch("dell ZZZZZZZ", "U1").text
+
+
+def test_dell_browser_still_blocked_is_explained():
+    text = bot(Dell(http=dell_blocked_http(), browser_=FakeBrowser(deny_all=True))).dispatch("dell 9C4BPM4", "U1").text
+    assert "even from the bot's built-in browser" in text
+
+
+def test_dell_browser_not_used_when_plain_request_works():
+    fake = FakeBrowser()
+    dell = fake_dell_site()
+    dell.browser = fake
+    assert "Pro Precision 9 T2" in bot(dell).dispatch("dell 9C4BPM4", "U1").text
+    assert fake.opened == []
+
+
+def test_parse_dell_warranty():
+    assert parse_warranty(DELL_WARRANTY_SITE) == ("2029-09-24", "ProSupport")
+    assert parse_warranty({"warrantyResponseCode": "404", "warrantyEndDate": None}) == ("", "")
+    assert parse_warranty({"warrantyEndDate": "2027-01-02T00:00:00", "warrantyType": "BASIC"}) == ("2027-01-02", "BASIC")
 
 
 def test_dell_not_found():

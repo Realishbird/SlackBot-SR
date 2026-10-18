@@ -10,17 +10,11 @@ import re
 from collections import OrderedDict
 from html.parser import HTMLParser
 
-import httpx
-
 from bot.vendors.base import NotFound, SystemSpecs, Vendor
+from bot.vendors.http import make_client
 
 API = "https://partsurfer.hpcloud.hp.com/bff/proxy/get"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36 sr-bot",
-    "Accept": "application/json, text/plain, */*",
-    "Origin": "https://partsurfer.hp.com",
-    "Referer": "https://partsurfer.hp.com/",
-}
+HEADERS = {"Origin": "https://partsurfer.hp.com", "Referer": "https://partsurfer.hp.com/"}
 HPE_SITE = "https://partsurfer.hpe.com"
 
 # Packaging, labels, cables, documentation and the pseudo-parts HP lists for
@@ -144,8 +138,8 @@ class HP(Vendor):
     name = "HP"
     serial_hint = "serial number"
 
-    def __init__(self, http: httpx.Client | None = None) -> None:
-        self.http = http or httpx.Client(timeout=30, headers=HEADERS, follow_redirects=True)
+    def __init__(self, http=None) -> None:
+        self.http = http or make_client()
 
     def looks_like(self, serial: str) -> bool:
         # HP serials are 10 chars, e.g. MXL2062PMN, 5CG1234ABC, CND...
@@ -153,6 +147,8 @@ class HP(Vendor):
 
     def lookup(self, serial: str) -> SystemSpecs:
         r = self.http.get(API, params={"input": f"/Search/GenericSearch/{serial}/country/US/usertype/EXT"}, headers=HEADERS)
+        if r.status_code == 403:
+            raise RuntimeError("HP refused the request (403, bot protection)")
         r.raise_for_status()
         try:
             specs = parse_api(r.json(), serial)
@@ -162,10 +158,9 @@ class HP(Vendor):
             return specs
         # Not an HP PC/printer serial; maybe an HPE server.
         try:
-            r = self.http.get(f"{HPE_SITE}/Search.aspx", params={"searchText": serial}, headers={"User-Agent": HEADERS["User-Agent"]})
-            r.raise_for_status()
-            specs = parse_hpe_html(r.text, serial)
-        except httpx.HTTPError:
+            r = self.http.get(f"{HPE_SITE}/Search.aspx", params={"searchText": serial}, headers={"Referer": f"{HPE_SITE}/"})
+            specs = parse_hpe_html(r.text, serial) if r.status_code == 200 else None
+        except Exception:
             specs = None
         if specs:
             return specs

@@ -10,11 +10,11 @@ import html
 import json
 import re
 
-import httpx
-
 from bot.vendors.base import NotFound, SystemSpecs, Vendor, categorize
+from bot.vendors.http import make_client
 
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36 sr-bot"}
+SUPPORT = "https://pcsupport.lenovo.com"
+HEADERS = {"Referer": f"{SUPPORT}/us/en/"}
 # PSREF rows worth showing (matched against the row label, case-insensitive).
 WANTED = ("processor", "graphics", "memory", "storage", "display", "touchscreen", "battery", "power adapter",
           "wlan", "wwan", "ethernet", "operating system", "camera", "security chip")
@@ -53,15 +53,17 @@ class Lenovo(Vendor):
     name = "Lenovo"
     serial_hint = "serial number"
 
-    def __init__(self, http: httpx.Client | None = None) -> None:
-        self.http = http or httpx.Client(timeout=30, headers=UA, follow_redirects=True)
+    def __init__(self, http=None) -> None:
+        self.http = http or make_client()
 
     def looks_like(self, serial: str) -> bool:
         # Typical PC serials: 8 chars, e.g. R914DXCT, PF2ABCDE, MP1ABCDE.
         return bool(re.fullmatch(r"[A-Z0-9]{8}", serial))
 
     def lookup(self, serial: str) -> SystemSpecs:
-        r = self.http.get("https://pcsupport.lenovo.com/us/en/api/v4/mse/getproducts", params={"productId": serial}, headers=UA)
+        r = self.http.get(f"{SUPPORT}/us/en/api/v4/mse/getproducts", params={"productId": serial}, headers=HEADERS)
+        if r.status_code == 403:
+            raise RuntimeError("Lenovo refused the request (403, bot protection)")
         r.raise_for_status()
         data = r.json()
         product = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
@@ -75,7 +77,7 @@ class Lenovo(Vendor):
             vendor=self.name,
             serial=serial,
             model=product.get("Name") or product.get("name") or model_code,
-            url=f"https://pcsupport.lenovo.com/us/en/products/{product_id.lower()}",
+            url=f"{SUPPORT}/us/en/products/{product_id.lower()}",
         )
         sheet = self._spec_sheet(model_code)
         if sheet.get("ProductName"):
@@ -98,15 +100,17 @@ class Lenovo(Vendor):
         if not model_code:
             return {}
         try:
-            r = self.http.get("https://psref.lenovo.com/api/model/Info/SpecData", params={"model_code": model_code}, headers=UA)
-            r.raise_for_status()
+            r = self.http.get("https://psref.lenovo.com/api/model/Info/SpecData", params={"model_code": model_code},
+                              headers={"Referer": "https://psref.lenovo.com/"})
+            if r.status_code != 200:
+                return {}
             return r.json().get("data") or {}
-        except (httpx.HTTPError, ValueError, AttributeError):
+        except Exception:  # spec sheet is a nice-to-have; the model name still shows
             return {}
 
     def _warranty(self, product_id: str) -> dict:
         try:
-            r = self.http.get(f"https://pcsupport.lenovo.com/us/en/products/{product_id.lower()}/warranty", headers=UA)
-            return parse_warranty(r.text)
-        except httpx.HTTPError:
+            r = self.http.get(f"{SUPPORT}/us/en/products/{product_id.lower()}/warranty", headers=HEADERS)
+            return parse_warranty(r.text) if r.status_code == 200 else {}
+        except Exception:
             return {}

@@ -53,6 +53,8 @@ commas.
 
 The Lenovo and HP lookups use the public endpoints behind the vendors' own
 support sites rather than official APIs, so a site redesign can break them.
+Both sites sit behind bot protection that rejects plain Python clients, so
+requests go through `curl_cffi`, which presents a real Chrome TLS fingerprint.
 HP packaging, labels, cables and firmware placeholders are filtered out of
 the list.
 

@@ -84,6 +84,7 @@ def test_chat_off_without_url(monkeypatch):
 
 def test_markdown_to_mrkdwn():
     assert to_mrkdwn("## Steps\n- **Reboot** it\n- See [docs](https://x.y/z)") == "*Steps*\n• *Reboot* it\n• See <https://x.y/z|docs>"
+    assert to_mrkdwn("### **Model**\n***Main Parts***:") == "*Model*\n*Main Parts*:"
 
 
 def test_thinking_models_reasoning_is_hidden():

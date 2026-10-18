@@ -60,8 +60,8 @@ def strip_thinking(text: str) -> str:
 
 def to_mrkdwn(text: str) -> str:
     """Markdown as models write it -> Slack mrkdwn (bold, headers, bullets, code)."""
-    text = re.sub(r"^#{1,6}\s*(.+)$", r"*\1*", text, flags=re.M)        # headers -> bold
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)                        # **bold** -> *bold*
+    text = re.sub(r"^#{1,6}\s*(.+)$", lambda m: f"*{m.group(1).strip().strip('*')}*", text, flags=re.M)  # headers -> bold
+    text = re.sub(r"\*{2,3}(.+?)\*{2,3}", r"*\1*", text)                   # **bold** / ***bold*** -> *bold*
     text = re.sub(r"(?<![*\w])_(?!_)(.+?)_(?![*\w])", r"_\1_", text)      # italics unchanged
     text = re.sub(r"^\s*[-*]\s+", "• ", text, flags=re.M)                 # - item -> • item
     text = re.sub(r"\[([^\]]+)\]\((https?://[^)]+)\)", r"<\2|\1>", text)  # [text](url) -> <url|text>

@@ -48,6 +48,32 @@ If you change the slash command name in the manifest, set `SLASH_COMMAND` to mat
 
 ## Deploy on Proxmox
 
+### One command (creates the LXC for you)
+
+Create the Slack app first (above) so you have both tokens. Then in the
+Proxmox host shell (Datacenter > your node > Shell):
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/create-lxc.sh)"
+```
+
+It asks for your Slack tokens (and Dell keys, optional), creates an
+unprivileged Debian 12 LXC with nesting enabled (1 core, 512 MB RAM, 4 GB disk,
+DHCP on `vmbr0`, starts on boot), installs Docker inside it, clones this repo
+to `/opt/slackbot-sr` and starts the bot. Change defaults by setting them in
+front of the command, for example `STORAGE=local-zfs BRIDGE=vmbr1 CTID=150`.
+The variables are listed at the top of `proxmox/create-lxc.sh`.
+
+To update later, run this inside the LXC (`pct enter <id>`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/install.sh | bash
+```
+
+`install.sh` also works on its own in an LXC or VM you made yourself.
+
+### Manual
+
 Pick one. Both run the same `docker compose` stack.
 
 **Option A: Debian LXC with Docker (lightest)**

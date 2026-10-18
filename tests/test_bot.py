@@ -34,16 +34,35 @@ LENOVO_SPECS = {"data": {"SpecData": [
 ]}}
 LENOVO_WARRANTY_HTML = 'x\nvar ds_warranties = window.ds_warranties || {"BaseWarranties":[{"End":"2024-05-01"},{"End":"2025-05-01"}]};\ny'
 
-HP_HTML = """
-<html><body>
-<span id="ctl00_BodyContentPlaceHolder_lblDescription">HP EliteBook 840 G8 Notebook PC</span>
-<table id="ctl00_BodyContentPlaceHolder_gridCOMBOM">
-<tr><th>Part Number</th><th>Description</th><th>Qty</th></tr>
-<tr><td>M36311-001</td><td>Processor Intel Core i7-1165G7</td><td>1</td></tr>
-<tr><td>L67710-001</td><td>8GB DDR4 3200 SODIMM memory</td><td>2</td></tr>
-<tr><td>M17414-001</td><td>512GB NVMe SSD</td><td>1</td></tr>
-</table></body></html>
-"""
+HP_API = {
+    "Status": {"Code": "E-0099", "Message": "Internal Error Occcured"},
+    "Body": {
+        "SearchString": "MXL2062PMN", "Identifier": "SERIAL",
+        "ProductBOM": [{"ProductName": "HP Z2 G8 Tower Workstation Desktop PC RCTO Base Model", "ProductNumber": "287S5AV", "EnhancedDescription": "SPS-Dust Filter Z2 TWR"}],
+        "SerialNumberBOM": {
+            "wwsnrsinput": {"serial_no": "MXL2062PMN", "product_no": "287S5AV", "user_name": "BU HP Z2 TWR G8 RCTO"},
+            "unit_configuration": [
+                {"part_number": "703216-001", "part_description": "CA, Mini DisplayPort (Mini DP) to DP", "part_quantity": "8"},
+                {"part_number": "708984-001", "part_description": "LBL, Quality Tracking", "part_quantity": "2"},
+                {"part_number": "837117-003", "part_description": "HDD, 1TB,WD XL1000C,SATA-6G,512e", "part_quantity": "1"},
+                {"part_number": "L42505-001", "part_description": "DPK, WIN 10 PRO HIGH-END", "part_quantity": "1"},
+                {"part_number": "L55990-002", "part_description": "WLAN 11ax 2x2 INT AX201NGW-W HrP 2 NV", "part_quantity": "1"},
+                {"part_number": "L57519-002", "part_description": "PCA, Radeon Pro WX 3200 4GB", "part_quantity": "1"},
+                {"part_number": "L57519-002", "part_description": "PCA, Radeon Pro WX 3200 4GB", "part_quantity": "1"},
+                {"part_number": "L94255-5A1", "part_description": "DIMM,16GB PC4-3200MHz,1Rx8,nECC", "part_quantity": "1"},
+                {"part_number": "L94255-5A1", "part_description": "DIMM,16GB PC4-3200MHz,1Rx8,nECC", "part_quantity": "1"},
+                {"part_number": "L97053-001", "part_description": "Cooler, CPU, 125W Z2G5 TWR", "part_quantity": "1"},
+                {"part_number": "M16789-001", "part_description": "512GB M.2 2280 PC711 PCIe Gen3x4 TLC", "part_quantity": "1"},
+                {"part_number": "M45850-001", "part_description": "IC,uP,I,RKL i9-11900K,3.5GHz,125W", "part_quantity": "1"},
+                {"part_number": "M48476-001", "part_description": "SSA, L6, Z2 TWR G8, 92, 700W, WKS", "part_quantity": "1"},
+                {"part_number": "M21748-001MX", "part_description": "MBD,Titan,RKL-W580,Z2 TWR WS (", "part_quantity": "1"},
+                {"part_number": "BIOS_VERSION", "part_description": "-N/A-", "part_quantity": "1"},
+                {"part_number": "IMG_Desc1", "part_description": "3X47 6J6S 6b7N", "part_quantity": "1"},
+            ],
+        },
+    },
+}
+HP_API_EMPTY = {"Status": {"Code": "E-0099"}, "Body": {"SearchString": "MLX2062PMN", "Identifier": "SERIAL", "SerialNumberBOM": {"spare_part": []}}}
 
 
 def mock(handler, **kw):
@@ -78,9 +97,12 @@ def fake_lenovo():
 
 def fake_hp():
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "partsurfer.hp.com" and request.url.params["searchText"] == "5CG1234ABC":
-            return httpx.Response(200, text=HP_HTML)
-        return httpx.Response(200, text="<html>No results</html>")
+        if request.url.host == "partsurfer.hpcloud.hp.com":
+            assert request.headers["Origin"] == "https://partsurfer.hp.com"
+            if "MXL2062PMN" in request.url.params["input"]:
+                return httpx.Response(200, json=HP_API)
+            return httpx.Response(200, json=HP_API_EMPTY)
+        return httpx.Response(200, text="<html>No additional information for X found in PartSurfer.</html>")
     return HP(mock(handler))
 
 
@@ -123,23 +145,30 @@ def test_lenovo():
 
 
 def test_hp():
-    text = bot(fake_hp()).dispatch("hp 5CG1234ABC", "U1").text
-    assert "HP EliteBook 840 G8" in text
-    assert "2 x 8GB DDR4 3200 SODIMM memory" in text
-    assert "*Storage*" in text
+    text = bot(fake_hp()).dispatch("hp mxl2062pmn", "U1").text
+    assert "HP Z2 G8 Tower Workstation Desktop PC (287S5AV)" in text
+    assert "CPU RKL i9-11900K" in text
+    assert "2 x DIMM,16GB PC4-3200MHz" in text
+    assert "2 x Radeon Pro WX 3200 4GB" in text
+    assert "HDD, 1TB" in text and "512GB M.2" in text
+    assert "*Power*\n• SSA, L6, Z2 TWR G8, 92, 700W" in text
+    assert "*System board*" in text and "*Cooling*" in text
+    assert "OS license: WIN 10 PRO" in text
+    assert "LBL" not in text and "Mini DisplayPort" not in text and "BIOS" not in text and "3X47" not in text
+    assert "No match" in bot(fake_hp()).dispatch("hp MLX2062PMN", "U1").text
 
 
 def test_specs_guesses_vendor():
     r = bot(fake_dell(), fake_lenovo(), fake_hp())
     assert "ThinkPad" in r.dispatch("specs PF2ABCDE", "U1").text
-    assert "EliteBook" in r.dispatch("specs 5CG1234ABC", "U1").text
+    assert "Z2 G8" in r.dispatch("specs MXL2062PMN", "U1").text
     assert "PowerEdge" in r.dispatch("specs ABC1234", "U1").text
 
 
 def test_specs_multiple_and_errors():
     r = bot(fake_lenovo(), fake_hp())
-    reply = r.dispatch("specs PF2ABCDE, 5CG1234ABC", "U1")
-    assert "ThinkPad" in reply.text and "EliteBook" in reply.text
+    reply = r.dispatch("specs PF2ABCDE, MXL2062PMN", "U1")
+    assert "ThinkPad" in reply.text and "Z2 G8" in reply.text
     assert any(b["type"] == "divider" for b in reply.blocks)
     assert "No match" in r.dispatch("specs ZZZZZZZZ", "U1").text
     assert "doesn't look like" in r.dispatch("specs !!", "U1").text

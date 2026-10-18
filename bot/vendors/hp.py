@@ -1,23 +1,78 @@
-"""HP and HPE, via PartSurfer's serial search (no keys needed).
+"""HP, via the JSON backend of the new PartSurfer site (no keys needed).
 
-PartSurfer returns an HTML page with the product description and, for most
-business PCs and servers, the factory parts list (BOM). Consumer models often
-have no BOM, in which case only the model is shown. This parses the HTML
-loosely, so a PartSurfer redesign may need a fix here.
+partsurfer.hp.com is a JavaScript app; the data comes from
+partsurfer.hpcloud.hp.com. A serial search returns the unit's factory
+configuration (SerialNumberBOM.unit_configuration) and the product family
+(ProductBOM). HPE servers live on partsurfer.hpe.com, which still serves
+plain HTML; that is tried second.
 """
 import re
+from collections import OrderedDict
 from html.parser import HTMLParser
 
 import httpx
 
 from bot.vendors.base import NotFound, SystemSpecs, Vendor
 
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) sr-bot"}
-SITES = ("https://partsurfer.hp.com", "https://partsurfer.hpe.com")
+API = "https://partsurfer.hpcloud.hp.com/bff/proxy/get"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36 sr-bot",
+    "Accept": "application/json, text/plain, */*",
+    "Origin": "https://partsurfer.hp.com",
+    "Referer": "https://partsurfer.hp.com/",
+}
+HPE_SITE = "https://partsurfer.hpe.com"
+
+# Packaging, labels, cables, documentation and the pseudo-parts HP lists for
+# firmware/MAC/UUID placeholders. None of these say anything about the hardware.
+SKIP = re.compile(
+    r"^(LBL|BAG|CARTON|CUSHION|GDE|CARD|DOC|KIT, ?DOC|PWRCORD|CA,|CA ASSY|CABLE|SCREW|RUBBER|FOAM|SHEET)"
+    r"|^(BIOS_|IMAGE_|IMG_|MAC_|MANUF_|MSFT_|PCA_|UUID_|FeatureByte)"
+    r"|holder$|-N/A-",
+    re.I,
+)
+
+
+def tidy(desc: str) -> str:
+    """Make HP's terse part names a little more readable."""
+    desc = " ".join(desc.split())
+    desc = re.sub(r"^IC,\s*uP,\s*[A-Z],\s*", "CPU ", desc)   # IC,uP,I,RKL i9-11900K -> CPU RKL i9-11900K
+    desc = re.sub(r"^PCA,\s*", "", desc)                      # PCA, Radeon Pro WX 3200 -> Radeon Pro WX 3200
+    desc = re.sub(r"^DPK,\s*", "OS license: ", desc)          # DPK, WIN 10 PRO -> OS license: WIN 10 PRO
+    return desc
+
+
+def parse_api(data: dict, serial: str) -> SystemSpecs | None:
+    body = data.get("Body") or {}
+    snb = body.get("SerialNumberBOM") or {}
+    unit = snb.get("unit_configuration") or []
+    product_bom = body.get("ProductBOM") or []
+    if not unit and not product_bom:
+        return None
+    meta = snb.get("wwsnrsinput") or {}
+    model = (product_bom[0].get("ProductName") if product_bom else "") or meta.get("user_name") or "Unknown model"
+    model = re.sub(r"\s*RCTO Base Model$", "", model)
+    product_no = meta.get("product_no") or (product_bom[0].get("ProductNumber") if product_bom else "")
+
+    specs = SystemSpecs(vendor="HP", serial=serial, model=f"{model} ({product_no})" if product_no else model,
+                        url=f"https://partsurfer.hp.com/?searchtext={serial}")
+    merged: "OrderedDict[str, int]" = OrderedDict()
+    for row in unit:
+        desc = (row.get("part_description") or "").strip()
+        if not desc or SKIP.search(desc):
+            continue
+        try:
+            qty = int(float(row.get("part_quantity") or 1))
+        except ValueError:
+            qty = 1
+        merged[tidy(desc)] = merged.get(tidy(desc), 0) + qty   # HP repeats a line per unit
+    for desc, qty in merged.items():
+        specs.add(desc, qty)
+    return specs
 
 
 class _Tables(HTMLParser):
-    """Collects every table as rows of cell text, plus element text by id."""
+    """Collects every table as rows of cell text, plus element text by id (HPE pages)."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -55,12 +110,13 @@ class _Tables(HTMLParser):
             text.append(data)
 
 
-def parse(html: str, serial: str, site: str) -> SystemSpecs | None:
+def parse_hpe_html(html: str, serial: str) -> SystemSpecs | None:
+    if "No additional information" in html:
+        return None
     p = _Tables()
     p.feed(html)
     model = next((v for k, v in p.by_id.items() if re.search(r"(Description|ProductName|lblDesc)", k, re.I) and v), "")
-
-    specs = SystemSpecs(vendor="HP", serial=serial, url=f"{site}/Search.aspx?searchText={serial}")
+    specs = SystemSpecs(vendor="HPE", serial=serial, url=f"{HPE_SITE}/Search.aspx?searchText={serial}")
     for rows in p.tables:
         if not rows:
             continue
@@ -72,13 +128,10 @@ def parse(html: str, serial: str, site: str) -> SystemSpecs | None:
         for row in rows[1:]:
             if len(row) <= desc_col:
                 continue
-            qty = 1
-            if qty_col is not None and len(row) > qty_col and row[qty_col].isdigit():
-                qty = int(row[qty_col])
+            qty = int(row[qty_col]) if qty_col is not None and len(row) > qty_col and row[qty_col].isdigit() else 1
             specs.add(row[desc_col], qty)
-        if not model:
-            # The product line usually sits in the first row of the BOM.
-            model = rows[1][desc_col] if len(rows) > 1 and len(rows[1]) > desc_col else ""
+        if not model and len(rows) > 1 and len(rows[1]) > desc_col:
+            model = rows[1][desc_col]
     if not model and not specs.parts:
         return None
     specs.model = model or "Unknown model"
@@ -92,20 +145,28 @@ class HP(Vendor):
     serial_hint = "serial number"
 
     def __init__(self, http: httpx.Client | None = None) -> None:
-        self.http = http or httpx.Client(timeout=30, headers=UA, follow_redirects=True)
+        self.http = http or httpx.Client(timeout=30, headers=HEADERS, follow_redirects=True)
 
     def looks_like(self, serial: str) -> bool:
-        # HP serials are 10 chars, e.g. 5CG1234ABC, CND..., MXL..., CZ...
+        # HP serials are 10 chars, e.g. MXL2062PMN, 5CG1234ABC, CND...
         return bool(re.fullmatch(r"[A-Z0-9]{10}", serial))
 
     def lookup(self, serial: str) -> SystemSpecs:
-        for site in SITES:
-            try:
-                r = self.http.get(f"{site}/Search.aspx", params={"searchText": serial})
-                r.raise_for_status()
-            except httpx.HTTPError:
-                continue
-            specs = parse(r.text, serial, site)
-            if specs:
-                return specs
+        r = self.http.get(API, params={"input": f"/Search/GenericSearch/{serial}/country/US/usertype/EXT"}, headers=HEADERS)
+        r.raise_for_status()
+        try:
+            specs = parse_api(r.json(), serial)
+        except ValueError:
+            specs = None
+        if specs:
+            return specs
+        # Not an HP PC/printer serial; maybe an HPE server.
+        try:
+            r = self.http.get(f"{HPE_SITE}/Search.aspx", params={"searchText": serial}, headers={"User-Agent": HEADERS["User-Agent"]})
+            r.raise_for_status()
+            specs = parse_hpe_html(r.text, serial)
+        except httpx.HTTPError:
+            specs = None
+        if specs:
+            return specs
         raise NotFound(serial)

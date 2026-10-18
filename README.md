@@ -49,11 +49,12 @@ commas.
 |---|---|---|
 | Dell | TechDirect API (the data behind "Original configuration") | API keys, see below |
 | Lenovo | pcsupport.lenovo.com + PSREF spec sheets | nothing |
-| HP / HPE | PartSurfer serial search (factory BOM) | nothing |
+| HP / HPE | PartSurfer's JSON backend (the unit's factory configuration); HPE's PartSurfer pages as fallback | nothing |
 
-The Lenovo and HP lookups read public support pages that aren't official
-APIs, so a site redesign can break them. Consumer HP models often have no BOM
-in PartSurfer, in which case only the model is shown.
+The Lenovo and HP lookups use the public endpoints behind the vendors' own
+support sites rather than official APIs, so a site redesign can break them.
+HP packaging, labels, cables and firmware placeholders are filtered out of
+the list.
 
 ### Dell API keys
 

@@ -250,7 +250,7 @@ def test_dell():
 
 def test_dell_without_keys_uses_support_site():
     text = bot(fake_dell_site()).dispatch("dell 9c4bpm4", "U1").text
-    assert "*Dell Dell Pro Precision 9 T2 (PW9T2260)*" in text
+    assert "*Dell Pro Precision 9 T2 (PW9T2260)*" in text
     assert "*Processor*\n• Intel Xeon 658X (144 MB cache, 24 cores, up to 4.9 GHz, 250W)" in text
     assert "*Memory*\n• 1 x 32 GB, DDR5, 5600 MT/s, RDIMM, ECC" in text
     assert "2 TB Performance SSD, Gen 5, SED Ready" in text and "DVD+/-RW" in text
@@ -273,7 +273,7 @@ def test_dell_falls_back_to_browser_when_blocked():
     fake = FakeBrowser(deny_first=1)  # first in-page call still 403 while the sensor settles
     text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
     assert fake.opened == ["https://www.dell.com/support/contractservices/en-us"]
-    assert "*Dell Dell Pro Precision 9 T2 PW9T2260*" in text  # name from Dell's product card
+    assert "*Dell Pro Precision 9 T2 PW9T2260*" in text  # name from Dell's product card
     assert "Intel Xeon 658X" in text
     assert "Warranty until: 2029-09-24 (ProSupport)" in text
     assert sum(1 for m, u in fake.calls if "GetOriginalConfiguration" in u) == 2
@@ -291,7 +291,7 @@ def test_dell_browser_still_blocked_is_explained():
 def test_dell_parts_denied_still_gives_model_and_warranty():
     fake = FakeBrowser(deny_config=True)
     text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
-    assert "*Dell Dell Pro Precision 9 T2 PW9T2260* (`9C4BPM4`)" in text
+    assert "*Dell Pro Precision 9 T2 PW9T2260* (`9C4BPM4`)" in text
     assert "Warranty until: 2029-09-24 (ProSupport)" in text
     assert "only shows the parts list to a person's browser" in text
     assert "Intel Xeon" not in text

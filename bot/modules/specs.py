@@ -36,7 +36,8 @@ def discover_vendors() -> list[Vendor]:
 
 
 def render(specs: SystemSpecs) -> Reply:
-    head = [f"*{specs.vendor} {specs.model}* (`{specs.serial}`)"]
+    title = specs.model if specs.model.lower().startswith(specs.vendor.lower()) else f"{specs.vendor} {specs.model}"
+    head = [f"*{title}* (`{specs.serial}`)"]
     if specs.ship_date:
         head.append(f"Shipped: {specs.ship_date}")
     if specs.warranty_end:

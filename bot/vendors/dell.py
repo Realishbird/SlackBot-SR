@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 SUPPORT = "https://www.dell.com"
 CONFIG_URL = f"{SUPPORT}/support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration"
 WARMUP_URL = f"{SUPPORT}/support/home/en-us"
+PRODUCT_URL = f"{SUPPORT}/support/home/en-us/product-support/servicetag/{{tag}}/overview"
 # Warranty widget backend: encode the tag, then ask for the entitlement.
 ENC_URL = f"{SUPPORT}/support/components/detectproduct/encvalue/{{tag}}?appname=warranty"
 WARRANTY_URL = f"{SUPPORT}/support/contractservices/en-us/entitlement/contractservicesapi/v1"
@@ -242,7 +243,7 @@ class Dell(Vendor):
     # ---- support site through the hidden browser ----
     def _lookup_browser(self, tag: str) -> SystemSpecs:
         with self.browser.open(WARMUP_URL) as s:
-            r = self.fetch_config(s, tag)
+            r = self.fetch_config(s, tag, report=lambda step, resp: log.info("dell browser: %s -> HTTP %s", step, resp.status))
             if r.status == 403:
                 raise Blocked(BROWSER_BLOCKED_MSG)
             if r.status >= 400:
@@ -259,18 +260,31 @@ class Dell(Vendor):
         return specs
 
     @staticmethod
-    def fetch_config(s, tag: str):
-        """GET the Original Configuration from inside the page; retry while the
-        sensor is still earning its cookie (first calls sometimes get 403)."""
+    def fetch_config(s, tag: str, report=None):
+        """Get the Original Configuration through the browser session, trying
+        progressively more "human" routes while Akamai keeps saying 403:
+        fetch() from the support home, then from the tag's own product page,
+        then navigating straight to the configuration URL."""
         url = f"{CONFIG_URL}?serviceTag={tag}&showOriginalConfig=true&showCurrentConfig=true"
         headers = {"Accept": "text/html, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}
+        say = report or (lambda *_: None)
+
         r = s.get(url, headers=headers)
-        for _ in range(3):
-            if r.status != 403:
-                break
-            s.nudge()
-            s.wait(2500)
+        say("fetch from support home", r)
+        if r.status == 403:
+            s.settle()
             r = s.get(url, headers=headers)
+            say("fetch again after settling", r)
+        if r.status == 403:
+            page = s.goto(PRODUCT_URL.format(tag=tag))
+            say("product page", page)
+            r = s.get(url, headers=headers)
+            say("fetch from product page", r)
+        if r.status == 403:
+            r = s.goto(url)
+            say("navigate to config url", r)
+            if r.status == 200 and "OriginalConfigData" not in r.text:
+                r = browser.Response(403, r.text)
         return r
 
     @staticmethod

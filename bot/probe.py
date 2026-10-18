@@ -40,9 +40,11 @@ def main() -> None:
     t0 = time.time()
     try:
         with browser.Browser().open(WARMUP_URL) as s:
-            print(f"   page loaded in {time.time() - t0:.1f}s, cookies: {', '.join(s.cookies()) or 'none'}")
-            r = Dell.fetch_config(s, tag)
-            status("5. config via browser", r.status, r.text)
+            print(f"   page loaded in {time.time() - t0:.1f}s, title: {s.title[:60]!r}")
+            print(f"   ua: {s.page.evaluate('navigator.userAgent')}")
+            print(f"   cookies: {', '.join(s.cookies()) or 'none'}")
+            r = Dell.fetch_config(s, tag, report=lambda step, resp: status(f"5. {step:<26}", resp.status, resp.text))
+            print(f"   cookies after: {', '.join(s.cookies()) or 'none'}")
             enc = s.get(f"https://www.dell.com/support/components/detectproduct/encvalue/{tag}?appname=warranty")
             status("6. warranty token   ", enc.status, enc.text)
             end, service = Dell.fetch_warranty(s, tag)

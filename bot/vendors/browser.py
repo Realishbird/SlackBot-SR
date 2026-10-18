@@ -31,10 +31,12 @@ LAUNCH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--window-size=1366,768",
 ]
-# Pretend to be a current desktop Chrome on Windows; headless Chromium's own
-# UA says "HeadlessChrome", which bot protection flags immediately.
-USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+# Headless Chromium's own UA says "HeadlessChrome", which bot protection
+# flags at once. We claim the same Chrome build on Linux, so the UA agrees
+# with the client hints and navigator.platform the real binary reports
+# (a Windows UA on a Linux browser is itself a bot signal).
+USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36")
 
 # Runs inside the page. Returns status and body text of a same-site request.
 FETCH_JS = """
@@ -71,6 +73,7 @@ class Session:
     def __init__(self, page, timeout_ms: int) -> None:
         self.page = page
         self.timeout_ms = timeout_ms
+        self._n = 0
 
     def get(self, url: str, headers: dict | None = None) -> Response:
         return self._fetch("GET", url, headers, None)
@@ -82,12 +85,44 @@ class Session:
     def wait(self, ms: int) -> None:
         self.page.wait_for_timeout(ms)
 
-    def nudge(self) -> None:
-        """A little mouse activity; some sensors score an idle page as a bot."""
+    def goto(self, url: str) -> Response:
+        """Navigate the page itself (a document request, which bot protection
+        treats differently from fetch()) and return status plus HTML."""
+        resp = self.page.goto(url, wait_until="domcontentloaded")
         try:
-            self.page.mouse.move(200, 300)
-            self.page.mouse.move(640, 420, steps=8)
-            self.page.mouse.wheel(0, 300)
+            self.page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:
+            pass
+        self.settle()
+        return Response(resp.status if resp else 0, self.page.content())
+
+    def settle(self, rounds: int = 2) -> None:
+        """A few seconds of human-looking activity. Akamai's sensor only
+        issues a usable cookie after it has seen input events and posted
+        its telemetry, which takes a moment after the page loads."""
+        for _ in range(rounds):
+            self.nudge()
+            self.page.wait_for_timeout(1500)
+
+    @property
+    def title(self) -> str:
+        try:
+            return self.page.title()
+        except Exception:
+            return ""
+
+    @property
+    def denied(self) -> bool:
+        return "access denied" in self.title.lower()
+
+    def nudge(self) -> None:
+        """A little mouse and keyboard activity; sensors score an idle page as a bot."""
+        try:
+            self.page.mouse.move(180 + self._n * 37 % 400, 260 + self._n * 53 % 300, steps=6)
+            self.page.mouse.move(700 - self._n * 29 % 300, 450, steps=10)
+            self.page.mouse.wheel(0, 250 if self._n % 2 == 0 else -120)
+            self.page.keyboard.press("Shift")
+            self._n += 1
         except Exception:
             pass
 
@@ -117,23 +152,20 @@ class Browser:
             launch = {"executable_path": os.environ["CHROMIUM_PATH"]} if os.environ.get("CHROMIUM_PATH") else {"channel": "chromium"}
             browser = p.chromium.launch(headless=True, args=LAUNCH_ARGS, **launch)
             try:
+                major = (browser.version or "0").split(".")[0]
                 context = browser.new_context(
-                    user_agent=USER_AGENT,
+                    user_agent=USER_AGENT.format(major=major),
                     viewport={"width": 1366, "height": 768},
+                    screen={"width": 1920, "height": 1080},
                     locale="en-US",
                     timezone_id="America/Chicago",
                 )
                 page = context.new_page()
                 page.set_default_timeout(self.timeout_ms)
-                page.goto(url, wait_until="domcontentloaded")
-                try:
-                    page.wait_for_load_state("networkidle", timeout=8000)
-                except Exception:
-                    pass  # ad trackers never settle; the sensor has posted by now
                 session = Session(page, self.timeout_ms)
-                session.nudge()
-                page.wait_for_timeout(1000)
-                log.debug("browser: %s loaded, cookies %s", url, ", ".join(session.cookies()))
+                first = session.goto(url)
+                log.info("browser: Chrome %s loaded %s: HTTP %s, title %r, cookies %s",
+                         major, url, first.status, session.title[:60], ", ".join(session.cookies()))
                 yield session
             finally:
                 browser.close()

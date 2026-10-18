@@ -159,7 +159,17 @@ class FakeBrowser:
 
     def wait(self, ms): pass
     def nudge(self): pass
+    def settle(self, rounds=2): pass
     def cookies(self): return ["_abck", "bm_sz"]
+    title = "Support | Dell US"
+
+    def goto(self, url):
+        self.calls.append(("GOTO", url))
+        if self.deny_all:
+            return browser.Response(403, "<html><title>Access Denied</title></html>")
+        if "GetOriginalConfiguration" in url:
+            return browser.Response(200, "<html>" + (DELL_SITE_HTML if "serviceTag=9C4BPM4" in url else DELL_SITE_EMPTY) + "</html>")
+        return browser.Response(200, "<html>product page</html>")
 
     def get(self, url, headers=None):
         self.calls.append(("GET", url))
@@ -263,8 +273,18 @@ def test_dell_falls_back_to_browser_when_blocked():
 
 
 def test_dell_browser_still_blocked_is_explained():
-    text = bot(Dell(http=dell_blocked_http(), browser_=FakeBrowser(deny_all=True))).dispatch("dell 9C4BPM4", "U1").text
+    fake = FakeBrowser(deny_all=True)
+    text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
     assert "even from the bot's built-in browser" in text
+    # It tried every route: two fetches, the product page, a fetch there, then direct navigation.
+    assert [m for m, _ in fake.calls] == ["GET", "GET", "GOTO", "GET", "GOTO"]
+
+
+def test_dell_browser_direct_navigation_fallback():
+    fake = FakeBrowser(deny_first=3)  # fetch() never gets through, navigation does
+    text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
+    assert "Pro Precision 9 T2" in text
+    assert ("GOTO", "https://www.dell.com/support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration?serviceTag=9C4BPM4&showOriginalConfig=true&showCurrentConfig=true") in fake.calls
 
 
 def test_dell_browser_not_used_when_plain_request_works():

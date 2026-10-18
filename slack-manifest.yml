@@ -1,8 +1,8 @@
 display_information:
-  name: HelperBot
+  name: sr-bot
 features:
   bot_user:
-    display_name: HelperBot
+    display_name: sr-bot
     always_online: true
   slash_commands:
     - command: /bot

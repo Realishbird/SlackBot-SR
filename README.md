@@ -7,7 +7,7 @@ forward or reverse proxy.
 Talk to it three ways:
 
 - `/bot dell 9C4BPM4`
-- `@HelperBot dell 9C4BPM4` in a channel it's in (replies in a thread)
+- `@sr-bot dell 9C4BPM4` in a channel it's in (replies in a thread)
 - a DM to the bot: `dell 9C4BPM4`
 
 `/bot help` lists every loaded module.
@@ -42,7 +42,7 @@ is logged.
    `connections:write` scope. That's `SLACK_APP_TOKEN` (`xapp-...`).
 3. **Install App**: install to the workspace. The Bot User OAuth Token is
    `SLACK_BOT_TOKEN` (`xoxb-...`).
-4. Invite the bot to channels where you want to @mention it: `/invite @HelperBot`.
+4. Invite the bot to channels where you want to @mention it: `/invite @sr-bot`.
 
 If you change the slash command name in the manifest, set `SLASH_COMMAND` to match.
 

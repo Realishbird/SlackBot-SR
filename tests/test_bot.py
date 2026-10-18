@@ -145,8 +145,9 @@ DELL_WARRANTY_SITE = {"warrantyDisplayName": "ProSupport", "warrantyEndDate": "S
 class FakeBrowser:
     """Stands in for bot.vendors.browser.Browser: same open()/get()/post() surface."""
 
-    def __init__(self, deny_first=0, deny_all=False):
-        self.deny_first, self.deny_all, self.calls, self.opened = deny_first, deny_all, [], []
+    def __init__(self, deny_first=0, deny_all=False, deny_config=False):
+        self.deny_first, self.deny_all, self.deny_config = deny_first, deny_all, deny_config
+        self.calls, self.opened = [], []
 
     def open(self, url):
         from contextlib import contextmanager
@@ -165,7 +166,7 @@ class FakeBrowser:
 
     def goto(self, url):
         self.calls.append(("GOTO", url))
-        if self.deny_all:
+        if self.deny_all or (self.deny_config and "GetOriginalConfiguration" in url):
             return browser.Response(403, "<html><title>Access Denied</title></html>")
         if "GetOriginalConfiguration" in url:
             return browser.Response(200, "<html>" + (DELL_SITE_HTML if "serviceTag=9C4BPM4" in url else DELL_SITE_EMPTY) + "</html>")
@@ -173,12 +174,19 @@ class FakeBrowser:
 
     def get(self, url, headers=None):
         self.calls.append(("GET", url))
-        if self.deny_all or len([c for c in self.calls if "GetOriginalConfiguration" in c[1]]) <= self.deny_first:
-            return browser.Response(403, "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD></HTML>")
+        denied = browser.Response(403, "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD></HTML>")
+        if self.deny_all:
+            return denied
         if "GetOriginalConfiguration" in url:
+            if self.deny_config or len([c for c in self.calls if "GetOriginalConfiguration" in c[1]]) <= self.deny_first:
+                return denied
             return browser.Response(200, DELL_SITE_HTML if "serviceTag=9C4BPM4" in url else DELL_SITE_EMPTY)
         if "encvalue" in url:
-            return browser.Response(200, '"0-dGVzdA=="')
+            return browser.Response(200, '"0-dGVzdA=="') if "/9C4BPM4?" in url else browser.Response(400, "")
+        if "productsmfe" in url:
+            if "selection=9C4BPM4" not in url:
+                return browser.Response(200, "<div>Product not found</div>")
+            return browser.Response(200, '<div id="pdMfe"><img title="Dell Pro Precision 9 T2 PW9T2260"><h4 class="x">Dell Pro Precision 9 T2 PW9T2260</h4><h5>dup</h5></div>')
         return browser.Response(404, "")
 
     def post(self, url, body, headers=None):
@@ -264,8 +272,8 @@ def test_dell_site_warms_up_after_403():
 def test_dell_falls_back_to_browser_when_blocked():
     fake = FakeBrowser(deny_first=1)  # first in-page call still 403 while the sensor settles
     text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
-    assert fake.opened == ["https://www.dell.com/support/home/en-us"]
-    assert "*Dell Dell Pro Precision 9 T2 (PW9T2260)*" in text
+    assert fake.opened == ["https://www.dell.com/support/contractservices/en-us"]
+    assert "*Dell Dell Pro Precision 9 T2 PW9T2260*" in text  # name from Dell's product card
     assert "Intel Xeon 658X" in text
     assert "Warranty until: 2029-09-24 (ProSupport)" in text
     assert sum(1 for m, u in fake.calls if "GetOriginalConfiguration" in u) == 2
@@ -276,8 +284,19 @@ def test_dell_browser_still_blocked_is_explained():
     fake = FakeBrowser(deny_all=True)
     text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
     assert "even from the bot's built-in browser" in text
-    # It tried every route: two fetches, the product page, a fetch there, then direct navigation.
-    assert [m for m, _ in fake.calls] == ["GET", "GET", "GOTO", "GET", "GOTO"]
+    # product card, warranty token, then every config route: two fetches and direct navigation
+    assert [m for m, _ in fake.calls] == ["GET", "GET", "GET", "GET", "GOTO"]
+
+
+def test_dell_parts_denied_still_gives_model_and_warranty():
+    fake = FakeBrowser(deny_config=True)
+    text = bot(Dell(http=dell_blocked_http(), browser_=fake)).dispatch("dell 9C4BPM4", "U1").text
+    assert "*Dell Dell Pro Precision 9 T2 PW9T2260* (`9C4BPM4`)" in text
+    assert "Warranty until: 2029-09-24 (ProSupport)" in text
+    assert "only shows the parts list to a person's browser" in text
+    assert "Intel Xeon" not in text
+    # Unknown tag: Dell has no card and no warranty for it, so it is a plain "no match".
+    assert "No match" in bot(Dell(http=dell_blocked_http(), browser_=FakeBrowser(deny_config=True))).dispatch("dell ZZZZZZZ", "U1").text
 
 
 def test_dell_browser_direct_navigation_fallback():

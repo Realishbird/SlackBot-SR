@@ -33,7 +33,12 @@ log = logging.getLogger(__name__)
 SUPPORT = "https://www.dell.com"
 CONFIG_URL = f"{SUPPORT}/support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration"
 WARMUP_URL = f"{SUPPORT}/support/home/en-us"
+# The warranty page: the browser starts here because everything it needs
+# lives under paths Dell serves to it (contractservices, components, productsmfe).
+WARRANTY_PAGE = f"{SUPPORT}/support/contractservices/en-us"
 PRODUCT_URL = f"{SUPPORT}/support/home/en-us/product-support/servicetag/{{tag}}/overview"
+# Model name and picture, as the warranty page shows them (HTML fragment).
+DETAILS_URL = f"{SUPPORT}/support/productsmfe/en-us/productdetails?selection={{tag}}&assettype=svctag&appname=warranty&inccomponents=false&isolated=false"
 # Warranty widget backend: encode the tag, then ask for the entitlement.
 ENC_URL = f"{SUPPORT}/support/components/detectproduct/encvalue/{{tag}}?appname=warranty"
 WARRANTY_URL = f"{SUPPORT}/support/contractservices/en-us/entitlement/contractservicesapi/v1"
@@ -41,6 +46,8 @@ BLOCKED_MSG = ("Dell's website blocked the lookup (its bot protection wants a re
                "Add Dell TechDirect API keys on the admin page to look up Dell tags.")
 BROWSER_BLOCKED_MSG = ("Dell's bot protection blocked the lookup even from the bot's built-in browser. "
                        "Try again in a minute; if it keeps happening, add Dell TechDirect API keys on the admin page.")
+PARTS_BLOCKED_NOTE = ("Dell's website only shows the parts list to a person's browser, so the bot can't fetch it. "
+                      "Add Dell TechDirect API keys on the admin page for the full configuration.")
 # Mimic the XHR the Parts & Repairs page makes.
 SITE_HEADERS = {
     "Referer": f"{SUPPORT}/support/home/en-us",
@@ -143,6 +150,16 @@ def parse_site(page: str, tag: str) -> SystemSpecs | None:
     return specs
 
 
+def parse_details(html: str) -> str:
+    """Model name from the productdetails fragment: the first <h4> (e.g.
+    "Dell Pro Precision 9 T2 PW9T2260"), or the product image title."""
+    m = re.search(r"<h4[^>]*>(.*?)</h4>", html, re.S) or re.search(r'title="([^"]+)"', html)
+    name = re.sub(r"<[^>]+>", "", m.group(1)).strip() if m else ""
+    if not name or re.search(r"not found|no product|unable", name, re.I):
+        return ""
+    return re.sub(r"\s+", " ", name)
+
+
 def parse_warranty(data: dict) -> tuple[str, str]:
     """(end date ISO, service name) from the contractservices entitlement reply."""
     if str(data.get("warrantyResponseCode") or "") not in ("200", "") and not data.get("warrantyEndDate"):
@@ -242,21 +259,39 @@ class Dell(Vendor):
 
     # ---- support site through the hidden browser ----
     def _lookup_browser(self, tag: str) -> SystemSpecs:
-        with self.browser.open(WARMUP_URL) as s:
-            r = self.fetch_config(s, tag, report=lambda step, resp: log.info("dell browser: %s -> HTTP %s", step, resp.status))
-            if r.status == 403:
-                raise Blocked(BROWSER_BLOCKED_MSG)
-            if r.status >= 400:
-                raise RuntimeError(f"Dell support site answered HTTP {r.status}")
-            specs = parse_site(r.text, tag)
-            if specs is None:
-                raise NotFound(tag)
+        """Dell serves the warranty widget and the product card to the hidden
+        browser, but (as of October 2026) refuses the product-details paths
+        that hold the parts list. So: model and warranty always, parts when
+        Dell lets them through, otherwise a note saying why they are missing."""
+        report = lambda step, resp: log.info("dell browser: %s -> HTTP %s", step, resp.status)  # noqa: E731
+        with self.browser.open(WARRANTY_PAGE) as s:
+            model = ""
             try:
-                specs.warranty_end, service = self.fetch_warranty(s, tag)
-                if service and specs.warranty_end:
-                    specs.warranty_end = f"{specs.warranty_end} ({service})"
+                d = s.get(DETAILS_URL.format(tag=tag), headers={"Accept": "text/html, */*; q=0.01"})
+                report("product card", d)
+                if d.status == 200:
+                    model = parse_details(d.text)
+            except Exception as exc:
+                log.info("dell: product card for %s failed: %r", tag, exc)
+            try:
+                warranty_end, service = self.fetch_warranty(s, tag)
             except Exception as exc:  # warranty is a bonus; never fail the lookup over it
                 log.info("dell: warranty lookup for %s failed: %r", tag, exc)
+                warranty_end, service = "", ""
+
+            r = self.fetch_config(s, tag, report=report)
+            specs = parse_site(r.text, tag) if r.status == 200 else None
+            if specs is None:
+                if r.status == 200 or (not model and not warranty_end):
+                    if r.status == 403:
+                        raise Blocked(BROWSER_BLOCKED_MSG)
+                    if r.status >= 400:
+                        raise RuntimeError(f"Dell support site answered HTTP {r.status}")
+                    raise NotFound(tag)
+                specs = SystemSpecs(vendor=self.name, serial=tag, url=PRODUCT_URL.format(tag=tag), note=PARTS_BLOCKED_NOTE)
+            specs.model = model or specs.model
+            if warranty_end:
+                specs.warranty_end = f"{warranty_end} ({service})" if service else warranty_end
         return specs
 
     @staticmethod
@@ -275,11 +310,6 @@ class Dell(Vendor):
             s.settle()
             r = s.get(url, headers=headers)
             say("fetch again after settling", r)
-        if r.status == 403:
-            page = s.goto(PRODUCT_URL.format(tag=tag))
-            say("product page", page)
-            r = s.get(url, headers=headers)
-            say("fetch from product page", r)
         if r.status == 403:
             r = s.goto(url)
             say("navigate to config url", r)

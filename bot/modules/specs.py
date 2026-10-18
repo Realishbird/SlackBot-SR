@@ -46,7 +46,9 @@ def render(specs: SystemSpecs) -> Reply:
         f"*{name}*\n" + "\n".join(f"• {item}" for item in specs.parts[name])
         for name in order
         if specs.parts.get(name)
-    ] or ["_No parts list was returned for this serial._"]
+    ] or [f"_{specs.note}_" if specs.note else "_No parts list was returned for this serial._"]
+    if specs.note and specs.parts:
+        body.append(f"_{specs.note}_")
     footer = f"<{specs.url}|Open on {specs.vendor} support>" if specs.url else ""
 
     text = "\n".join(head) + "\n\n" + "\n\n".join(body) + (f"\n\n{footer}" if footer else "")

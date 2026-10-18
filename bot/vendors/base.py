@@ -54,6 +54,7 @@ class SystemSpecs:
     warranty_end: str = ""
     parts: dict[str, list[str]] = field(default_factory=dict)
     url: str = ""
+    note: str = ""                # shown instead of / under the parts list, e.g. why it is missing
 
     def add(self, description: str, qty: int = 1, category: str | None = None) -> None:
         description = " ".join(description.split())

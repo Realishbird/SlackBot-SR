@@ -6,7 +6,7 @@ import sys
 import time
 
 from bot.vendors import browser
-from bot.vendors.dell import CONFIG_URL, PAGE_HEADERS, SITE_HEADERS, WARMUP_URL, Dell, extract_config
+from bot.vendors.dell import CONFIG_URL, DETAILS_URL, PAGE_HEADERS, SITE_HEADERS, WARMUP_URL, WARRANTY_PAGE, Dell, extract_config, parse_details
 from bot.vendors.http import make_client
 
 
@@ -39,12 +39,14 @@ def main() -> None:
     print("4. browser: launching Chromium ...", flush=True)
     t0 = time.time()
     try:
-        with browser.Browser().open(WARMUP_URL) as s:
+        with browser.Browser().open(WARRANTY_PAGE) as s:
             print(f"   page loaded in {time.time() - t0:.1f}s, title: {s.title[:60]!r}")
             print(f"   ua: {s.page.evaluate('navigator.userAgent')}")
             print(f"   cookies: {', '.join(s.cookies()) or 'none'}")
+            d = s.get(DETAILS_URL.format(tag=tag), headers={"Accept": "text/html, */*; q=0.01"})
+            status("5. product card      ", d.status, d.text)
+            print(f"   model: {parse_details(d.text) or 'none'}")
             r = Dell.fetch_config(s, tag, report=lambda step, resp: status(f"5. {step:<26}", resp.status, resp.text))
-            print(f"   cookies after: {', '.join(s.cookies()) or 'none'}")
             enc = s.get(f"https://www.dell.com/support/components/detectproduct/encvalue/{tag}?appname=warranty")
             status("6. warranty token   ", enc.status, enc.text)
             end, service = Dell.fetch_warranty(s, tag)

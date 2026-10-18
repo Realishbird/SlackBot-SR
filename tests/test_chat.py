@@ -1,6 +1,6 @@
 import httpx
 
-from bot.modules.chat import Chat, to_mrkdwn
+from bot.modules.chat import Chat, strip_thinking, to_mrkdwn
 from bot.modules.help import Help
 from bot.modules.specs import Specs
 from bot.registry import Registry
@@ -77,3 +77,10 @@ def test_chat_off_without_url(monkeypatch):
 
 def test_markdown_to_mrkdwn():
     assert to_mrkdwn("## Steps\n- **Reboot** it\n- See [docs](https://x.y/z)") == "*Steps*\n• *Reboot* it\n• See <https://x.y/z|docs>"
+
+
+def test_thinking_models_reasoning_is_hidden():
+    chat = Chat(base_url="http://llm.test/v1", http=fake_server(answer="<think>\nhmm, docks...\n</think>\n\nCheck the USB-C cable."))
+    assert bot(chat).dispatch("dock won't charge", "U1").text == "Check the USB-C cable."
+    assert strip_thinking("<think>never closed because max_tokens hit") == ""
+    assert "spent its whole reply thinking" in bot(Chat(base_url="http://llm.test/v1", http=fake_server(answer="<think>still going"))).dispatch("hi", "U1").text

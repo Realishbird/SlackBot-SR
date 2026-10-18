@@ -21,6 +21,13 @@ from bot.module import Module, Reply
 log = logging.getLogger(__name__)
 DEFAULT_PROMPT = "You are sr-bot, the IT team's Slack assistant. Answer briefly and plainly."
 MAX_REPLY = 2900  # Slack section block limit is 3000 characters
+THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.S)
+
+
+def strip_thinking(text: str) -> str:
+    """Reasoning models (qwen3, deepseek-r1) wrap their working in <think>
+    tags before the answer; a cut-off reply may never close the tag."""
+    return THINK_RE.sub("", text or "").strip()
 
 
 def to_mrkdwn(text: str) -> str:
@@ -66,13 +73,13 @@ class Chat(Module):
                 "model": self.model,
                 "messages": [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": question}],
                 "temperature": 0.3,
-                "max_tokens": 700,
+                "max_tokens": 1500,  # thinking models spend a good share of this on reasoning
                 "stream": False,
             },
         )
         r.raise_for_status()
         data = r.json()
-        return (data["choices"][0]["message"].get("content") or "").strip()
+        return strip_thinking(data["choices"][0]["message"].get("content") or "")
 
     def handle(self, args: str, user_id: str) -> Reply:
         question = args.strip()
@@ -92,7 +99,8 @@ class Chat(Module):
             log.warning("chat model gave an unexpected reply: %r", exc)
             return Reply(":warning: The chat model answered in a shape I don't understand.")
         if not answer:
-            return Reply("The model had nothing to say. Try rephrasing.")
+            return Reply("The model had nothing to say (or spent its whole reply thinking). Try rephrasing, "
+                         "or add `/no_think` to the system prompt on the admin page.")
         text = to_mrkdwn(answer)
         if len(text) > MAX_REPLY:
             text = text[:MAX_REPLY].rsplit("\n", 1)[0] + "\n_(cut, the answer was longer)_"

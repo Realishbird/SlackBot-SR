@@ -103,11 +103,15 @@ vLLM, or a hosted API. Set on the admin page:
 | Setting | Example |
 |---|---|
 | `LLM_BASE_URL` | `http://192.168.1.50:11434/v1` (Ollama) |
-| `LLM_MODEL` | `llama3.2:3b`, `qwen2.5:7b`, `llama3.1:8b` |
+| `LLM_MODEL` | `qwen3:8b`, `llama3.2:3b`, `llama3.1:8b` (whatever `ollama list` shows) |
 | `LLM_API_KEY` | blank for Ollama |
 | `LLM_SYSTEM_PROMPT` | who the bot is and how to answer |
 
 Leave the URL blank and chat stays off (unknown messages show help).
+
+Reasoning models such as `qwen3` think before they answer; the bot hides the
+`<think>` part and posts only the answer. For quicker replies, add `/no_think`
+to the end of `LLM_SYSTEM_PROMPT` and qwen3 skips the thinking.
 
 The quickest way to a fast model is Ollama on a machine with a GPU, for
 example your desktop: install from https://ollama.com, run `ollama pull

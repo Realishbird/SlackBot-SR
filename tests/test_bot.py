@@ -1,3 +1,5 @@
+import json
+
 import httpx
 
 from bot.module import Module
@@ -76,6 +78,33 @@ HP_API = {
 HP_API_EMPTY = {"Status": {"Code": "E-0099"}, "Body": {"SearchString": "MLX2062PMN", "Identifier": "SERIAL", "SerialNumberBOM": {"spare_part": []}}}
 
 
+DELL_SITE_HTML = """<div id="dep_reviewspec_div">...</div><script>
+    var EncryptServiceTag = "";
+    var OriginalConfigData = """ + json.dumps([
+    {"skuNumber": "817-BBBC", "skuDescription": "Not selected in this configura tion", "displayPartsData": [{"partNumber": "W21JJ", "description": "INFO,GNRC,OEM,TRACKING,PN", "qty": 1}]},
+    {"skuNumber": "658-BFZH", "skuDescription": "Dell Pro Max Tower 9 T2 PW9T22 60", "displayPartsData": []},
+    {"skuNumber": "619-BBPL", "skuDescription": "Windows 11 Pro for Workstation s", "displayPartsData": []},
+    {"skuNumber": "555-BNLC", "skuDescription": "MediaTek Wi-Fi 7 MT7925, 2x2, 802.11be, MU-MIMO, Bluetooth 5 .4 wireless card", "displayPartsData": []},
+    {"skuNumber": "555-BNLB", "skuDescription": "MediaTek MT7925 WLAN Driver", "displayPartsData": []},
+    {"skuNumber": "540-BGDX", "skuDescription": "Intel E810-XXV Dual Port 25GbE  SFP28, PCIe Full Height", "displayPartsData": []},
+    {"skuNumber": "490-BLMN", "skuDescription": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition (300 W), 96 GB GDDR7, 4 DP", "displayPartsData": []},
+    {"skuNumber": "450-AAFS", "skuDescription": "System Power Cord (US/Thai/Phi lippines)", "displayPartsData": []},
+    {"skuNumber": "429-BBCJ", "skuDescription": "8x DVD+/-RW 9.5mm RAM ODD", "displayPartsData": []},
+    {"skuNumber": "400-BVDF", "skuDescription": "2 TB Performance SSD, Gen 5, S ED Ready", "displayPartsData": [{"partNumber": "X", "description": "SSDR,2TB,SED,G54,80S3,PM9E1", "qty": 2}]},
+    {"skuNumber": "400-BSYT", "skuDescription": "No Hard Drive", "displayPartsData": []},
+    {"skuNumber": "389-FQGR", "skuDescription": "Precision 9 T2 Regulatory Labe l, 1500W, DAO", "displayPartsData": []},
+    {"skuNumber": "370-BDWS", "skuDescription": "32 GB: 1 x 32 GB, DDR5, 5600 M T/s, RDIMM, ECC", "displayPartsData": []},
+    {"skuNumber": "340-DYNT", "skuDescription": "Quick Setup Guide (DAO)", "displayPartsData": []},
+    {"skuNumber": "338-CVHG", "skuDescription": "Intel Xeon 658X (144 MB cache,  24 cores, up to 4.9 GHz, 250 W)", "displayPartsData": []},
+    {"skuNumber": "328-BHHB", "skuDescription": "Shipping Material (DAO)", "displayPartsData": []},
+    {"skuNumber": "321-BMSW", "skuDescription": "Dell Pro Precision 9 T2, 1500W  PSU", "displayPartsData": []},
+    {"skuNumber": "210-BVDD", "skuDescription": "Dell Pro Precision 9 T2 (PW9T2 260) CTO base", "displayPartsData": []},
+]) + """;
+    var tableColumnHeaders = [];
+</script>"""
+DELL_SITE_EMPTY = '<div></div><script>var OriginalConfigData = [];</script>'
+
+
 def mock(handler, **kw):
     return httpx.Client(transport=httpx.MockTransport(handler), **kw)
 
@@ -91,6 +120,14 @@ def fake_dell(status=200):
             return httpx.Response(200, json=DELL_COMPONENTS)
         return httpx.Response(200, json=DELL_WARRANTY)
     return Dell(DellClient("id", "secret", "https://dell.test", mock(handler)))
+
+
+def fake_dell_site():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "www.dell.com"
+        tag = request.url.params["serviceTag"]
+        return httpx.Response(200, text=DELL_SITE_HTML if tag == "9C4BPM4" else DELL_SITE_EMPTY)
+    return Dell(http=mock(handler))
 
 
 def fake_lenovo():
@@ -140,6 +177,22 @@ def test_dell():
     assert "12 x 32GB RDIMM" in text
     assert "Warranty until: 2025-03-05" in text
     assert "Bezel" not in text
+
+
+def test_dell_without_keys_uses_support_site():
+    text = bot(fake_dell_site()).dispatch("dell 9c4bpm4", "U1").text
+    assert "*Dell Dell Pro Precision 9 T2 (PW9T2260)*" in text
+    assert "*Processor*\n• Intel Xeon 658X (144 MB cache, 24 cores, up to 4.9 GHz, 250W)" in text
+    assert "*Memory*\n• 1 x 32 GB, DDR5, 5600 MT/s, RDIMM, ECC" in text
+    assert "2 TB Performance SSD, Gen 5, SED Ready" in text and "DVD+/-RW" in text
+    assert "NVIDIA RTX PRO 6000 Blackwell" in text
+    assert "*Network*\n• MediaTek Wi-Fi 7 MT7925, 2x2, 802.11be, MU-MIMO, Bluetooth 5.4 wireless card\n• Intel E810-XXV Dual Port 25GbE SFP28, PCIe Full Height" in text
+    assert "*Power*\n• Dell Pro Precision 9 T2, 1500W PSU" in text
+    assert "Windows 11 Pro for Workstations" in text
+    for junk in ("Not selected", "No Hard Drive", "Power Cord", "Regulatory", "Quick Setup", "Shipping", "WLAN Driver", "CTO base", "Max Tower"):
+        assert junk not in text, junk
+    assert "Warranty" not in text
+    assert "No match" in bot(fake_dell_site()).dispatch("dell ZZZZZZZ", "U1").text
 
 
 def test_dell_not_found():
@@ -227,12 +280,13 @@ def test_discover(monkeypatch):
     r.discover()
     assert {"help", "specs"} <= set(r.modules)
     specs = r.modules["specs"]
-    assert {"hp", "lenovo"} <= set(specs.by_word) and "dell" not in specs.by_word
+    assert {"hp", "lenovo", "dell"} <= set(specs.by_word)
+    assert specs.by_word["dell"].client is None          # no keys: support-site path
     monkeypatch.setenv("DELL_CLIENT_ID", "a")
     monkeypatch.setenv("DELL_CLIENT_SECRET", "b")
     r2 = Registry()
     r2.discover()
-    assert "dell" in r2.modules["specs"].by_word
+    assert r2.modules["specs"].by_word["dell"].client is not None   # keys: TechDirect API
     r3 = Registry()
     r3.discover({"nothing"})
     assert set(r3.modules) == {"help"}

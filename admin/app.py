@@ -153,7 +153,7 @@ def modules() -> dict:
     vendors = sorted(p.stem for p in (REPO_DIR / "bot" / "vendors").glob("*.py") if p.stem not in ("__init__", "base"))
     notes = {}
     if "dell" in vendors and not (env.get("DELL_CLIENT_ID") and env.get("DELL_CLIENT_SECRET")):
-        notes["dell"] = "disabled: no Dell API keys"
+        notes["dell"] = "no API keys: specs only, no warranty dates"
     return {"enabled": enabled, "modules": found, "vendors": vendors, "notes": notes}
 
 

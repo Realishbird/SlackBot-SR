@@ -64,7 +64,7 @@ def test_status(admin):
     assert s["containers"][0]["state"] == "running"
     assert s["modules"]["modules"] == ["help", "specs"]
     assert s["modules"]["vendors"] == ["dell", "hp", "lenovo"]
-    assert "dell" in s["modules"]["notes"]
+    assert "dell" in s["modules"]["notes"]   # admin flags missing keys (warranty data needs them)
     token = next(f for f in s["settings"] if f["key"] == "SLACK_BOT_TOKEN")
     assert token["secret"] and "123456789" not in token["value"] and token["value"].startswith("xoxb")
 

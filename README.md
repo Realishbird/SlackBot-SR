@@ -47,7 +47,7 @@ commas.
 
 | Vendor | Source | Needs |
 |---|---|---|
-| Dell | TechDirect API (the data behind "Original configuration") | API keys, see below |
+| Dell | Support site's "Original Configuration" (order SKUs); TechDirect API when keys are set | nothing (API keys add ship date and warranty) |
 | Lenovo | pcsupport.lenovo.com + PSREF spec sheets | nothing |
 | HP / HPE | PartSurfer's JSON backend (the unit's factory configuration); HPE's PartSurfer pages as fallback | nothing |
 
@@ -58,18 +58,21 @@ requests go through `curl_cffi`, which presents a real Chrome TLS fingerprint.
 HP packaging, labels, cables and firmware placeholders are filtered out of
 the list.
 
-### Dell API keys
+### Dell API keys (optional)
 
-Dell's support website blocks automated requests, so the Dell lookup uses
-Dell's official TechDirect API.
+Without keys, Dell lookups read the same "Original Configuration" list the
+support site shows under Parts & Repairs: processor, memory, drives, graphics,
+network, power supply and OS, grouped by Dell's order SKU families. That
+page gives no warranty or ship date.
+
+With TechDirect API keys the Dell lookup switches to Dell's official API,
+which adds ship date and warranty end:
 
 1. Sign in at https://techdirect.dell.com and open **APIs**.
 2. Request the **Warranty** API (asset entitlements and asset components).
    Dell approves requests manually, which can take a few days.
 3. Put the client ID and secret into `.env` as `DELL_CLIENT_ID` and
-   `DELL_CLIENT_SECRET`.
-
-Without keys the bot still starts; Dell is skipped and a warning is logged.
+   `DELL_CLIENT_SECRET` (or on the admin page) and restart the bot.
 
 ### Try a lookup without Slack
 

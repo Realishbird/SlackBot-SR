@@ -18,6 +18,8 @@ oauth_config:
       - chat:write
       - commands
       - im:history
+      - files:read          # read CSV files dropped in a DM (the Dell export)
+      - chat:write.public   # post the tidy result to a channel without being invited first
 settings:
   event_subscriptions:
     bot_events:

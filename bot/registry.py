@@ -44,9 +44,14 @@ class Registry:
         keyword, _, args = text.partition(" ")
         module = self._lookup.get(keyword.lower()) if keyword else None
         if module is None:
-            module = self._lookup["help"]
-            args = ""
-        if module.pass_keyword:
+            # No keyword: maybe a module recognises the content itself (a pasted file).
+            module = next((m for m in self.modules.values() if m.matches(text)), None)
+            if module is not None:
+                args = text
+            else:
+                module = self._lookup["help"]
+                args = ""
+        elif module.pass_keyword:
             args = f"{keyword.lower()} {args}"
         try:
             return module.handle(args.strip(), user_id)

@@ -122,7 +122,11 @@ def extract_config(page: str) -> list[dict]:
 
 
 def parse_site(page: str, tag: str) -> SystemSpecs | None:
-    skus = extract_config(page)
+    return parse_skus(extract_config(page), tag)
+
+
+def parse_skus(skus: list[dict], tag: str) -> SystemSpecs | None:
+    """Group a list of {skuNumber, skuDescription} order lines into SystemSpecs."""
     if not skus:
         return None
     specs = SystemSpecs(vendor="Dell", serial=tag, url=f"{SUPPORT}/support/home/en-us/product-support/servicetag/{tag}/overview")

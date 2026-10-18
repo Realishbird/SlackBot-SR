@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 class Reply:
     text: str
     blocks: list[dict] = field(default_factory=list)
+    broadcast: str = ""        # also post this reply to that channel (ID or #name)
 
 
 class Module:
@@ -21,6 +22,11 @@ class Module:
 
     def setup(self) -> None:
         """Called once at startup; read config here. Raise to disable."""
+
+    def matches(self, text: str) -> bool:
+        """True if this module should take a message that names no keyword,
+        e.g. because the text is a pasted file it knows how to read."""
+        return False
 
     def handle(self, args: str, user_id: str) -> Reply:
         raise NotImplementedError

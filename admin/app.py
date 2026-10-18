@@ -38,6 +38,7 @@ EDITABLE = [
     ("DELL_CLIENT_ID", "Dell TechDirect client ID"),
     ("DELL_CLIENT_SECRET", "Dell TechDirect client secret"),
     ("DELL_BROWSER", "Dell: use the built-in hidden Chromium when no API keys (auto or off)"),
+    ("INTAKE_CHANNEL", "Channel to post pasted Dell exports to (ID like C0123... or #name; blank = DM only)"),
     ("ADMIN_AUTO_UPDATE_MINUTES", "Auto-update check interval in minutes (0 = off)"),
 ]
 

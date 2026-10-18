@@ -76,6 +76,23 @@ Set `DELL_BROWSER=off` (on the admin page) to skip it; Dell lookups then
 answer with a "blocked" message unless API keys are set. Dell can change its
 protection at any time; if lookups start failing, run the probe below.
 
+### Paste a Dell export instead
+
+Dell's product page has a **Product Specifications** panel with an **Export**
+link that downloads `<service tag>.csv`. Paste that file's contents into a DM
+with the bot (or drop the file in), with the service tag in front if you
+want it in the title, and the bot answers with the same grouped summary as
+`specs`. No keyword needed; the bot recognises the file. Set `INTAKE_CHANNEL`
+on the admin page (a channel ID like `C0123ABCD`, or `#intake`) and every
+pasted export is also posted there with who submitted it; naming a channel in
+the message (`#intake` before the CSV) overrides the default.
+
+Dropping the file (rather than pasting its text) and posting to channels the
+bot hasn't been invited to need two extra scopes, `files:read` and
+`chat:write.public`. They are in `slack-manifest.yml`; after updating the
+manifest in your Slack app settings, click **Reinstall** when Slack asks.
+Without them, paste the text and `/invite @sr-bot` to the intake channel.
+
 ### Dell API keys (optional)
 
 With TechDirect API keys the Dell lookup switches to Dell's official API,

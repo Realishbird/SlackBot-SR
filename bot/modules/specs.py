@@ -82,7 +82,9 @@ class Specs(Module):
     def handle(self, args: str, user_id: str) -> Reply:
         word, _, rest = args.partition(" ")
         vendor = self.by_word.get(word)
-        serials = [s.upper() for s in re.split(r"[\s,]+", rest) if s]
+        # Serials are often typed with dashes or spaces (R9-14DXCT); strip them.
+        serials = [re.sub(r"[^A-Z0-9]", "", s.upper()) for s in re.split(r"[\s,]+", rest) if s]
+        serials = [s for s in serials if s]
         if not serials:
             return Reply(f"Usage: `{vendor.keyword if vendor else 'specs'} <serial>`")
         bad = [s for s in serials if not SERIAL.match(s)]

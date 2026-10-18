@@ -26,13 +26,24 @@ DELL_COMPONENTS = {
 }
 DELL_WARRANTY = [{"serviceTag": "ABC1234", "entitlements": [{"endDate": "2023-03-05T00:00:00Z"}, {"endDate": "2025-03-05T00:00:00Z"}]}]
 
-LENOVO_PRODUCTS = [{"Id": "LAPTOPS-AND-NETBOOKS/THINKPAD-T-SERIES-LAPTOPS/THINKPAD-T14-GEN-2-TYPE-20W0-20W1/20W0/20W0S00G00/PF2ABCDE", "Name": "ThinkPad T14 Gen 2 (Type 20W0, 20W1) - Type 20W0"}]
-LENOVO_SPECS = {"data": {"SpecData": [
-    {"Name": "Processor", "Content": ["Intel Core i5-1135G7"]},
-    {"Name": "Memory", "Content": "16GB DDR4-3200"},
-    {"Name": "Weight", "Content": "1.5 kg"},
+LENOVO_PRODUCTS = [{"Id": "LAPTOPS-AND-NETBOOKS/THINKPAD-P-SERIES-LAPTOPS/THINKPAD-P1-GEN-4-TYPE-20Y3-20Y4/20Y3/20Y3003XUS/R914DXCT", "Name": "P1 Gen 4 (type 20Y3, 20Y4 ) Laptop (ThinkPad) - Type 20Y3", "Serial": "R914DXCT"}]
+LENOVO_SPECS = {"code": 1, "data": {"ProductName": "ThinkPad P1 Gen 4", "SpecData": [
+    {"title": "PERFORMANCE", "name": "Processor", "note": [], "content": ["Intel Xeon&reg; W-11855M (6C / 12T, 3.2 / 4.9GHz, 18MB)"]},
+    {"name": "Graphics", "content": ["NVIDIA&reg; RTX A2000 4GB GDDR6"]},
+    {"name": "Memory", "content": ["2x 32GB SO-DIMM DDR4-3200 Non-ECC"]},
+    {"name": "Storage", "content": ["2TB SSD M.2 2280 PCIe&reg; 4.0x4 Performance NVMe&reg; Opal 2.0"]},
+    {"name": "Optical", "content": ["None"]},
+    {"name": "Battery", "content": ["Integrated 90Wh"]},
+    {"title": "DESIGN", "name": "Display", "content": ["16\" WQXGA (2560x1600) IPS 400nits Anti-glare"]},
+    {"name": "Case Color", "content": ["Black"]},
+    {"title": "SOFTWARE", "name": "Operating System", "content": ["Windows&reg; 10 Pro 64 for Workstations, English"]},
+    {"title": "CONNECTIVITY", "name": "WLAN + Bluetooth", "content": ["Intel&reg; Wi-Fi&reg; 6E AX210, 11ax 2x2 + BT5.1"]},
+    {"name": "WWAN", "content": ["None"]},
 ]}}
-LENOVO_WARRANTY_HTML = 'x\nvar ds_warranties = window.ds_warranties || {"BaseWarranties":[{"End":"2024-05-01"},{"End":"2025-05-01"}]};\ny'
+LENOVO_WARRANTY_HTML = ('<html><script>var ds_warranties = window.ds_warranties || {"ProductName":"P1","ManufactureDate":"2021-09-30T00:00:00",'
+                        '"BaseWarranties":[{"Name":"1YR Battery","Start":"2021-10-15","End":"2022-10-14"},{"Name":"3Y Depot","Start":"2021-10-15","End":"2024-10-14"}],'
+                        '"UpmaWarranties":[{"Name":"3Y Premier","End":"2024-10-14"}],"Nested":{"a":[1,{"b":"};"}]}};\nvar other = 1;</script>'
+                        + 'x' * 5000 + '</html>')
 
 HP_API = {
     "Status": {"Code": "E-0099", "Message": "Internal Error Occcured"},
@@ -85,11 +96,11 @@ def fake_dell(status=200):
 def fake_lenovo():
     def handler(request: httpx.Request) -> httpx.Response:
         if "getproducts" in request.url.path:
-            if request.url.params["productId"] != "PF2ABCDE":
+            if request.url.params["productId"] != "R914DXCT":
                 return httpx.Response(200, json=[])
             return httpx.Response(200, json=LENOVO_PRODUCTS)
         if "SpecData" in request.url.path:
-            assert request.url.params["model_code"] == "20W0S00G00"
+            assert request.url.params["model_code"] == "20Y3003XUS"
             return httpx.Response(200, json=LENOVO_SPECS)
         return httpx.Response(200, text=LENOVO_WARRANTY_HTML)
     return Lenovo(mock(handler))
@@ -136,12 +147,16 @@ def test_dell_not_found():
 
 
 def test_lenovo():
-    text = bot(fake_lenovo()).dispatch("lenovo pf2abcde", "U1").text
-    assert "ThinkPad T14 Gen 2" in text
-    assert "Intel Core i5-1135G7" in text
-    assert "16GB DDR4-3200" in text
-    assert "Weight" not in text
-    assert "Warranty until: 2025-05-01" in text
+    text = bot(fake_lenovo()).dispatch("lenovo r9-14dxct", "U1").text
+    assert "Lenovo ThinkPad P1 Gen 4 (20Y3003XUS)" in text
+    assert "*Processor*\n• Processor: Intel Xeon W-11855M" in text
+    assert "*Graphics*\n• Graphics: NVIDIA RTX A2000 4GB" in text
+    assert "2x 32GB SO-DIMM DDR4-3200" in text
+    assert "*Network*\n• WLAN + Bluetooth: Intel Wi-Fi 6E AX210" in text
+    assert "Windows 10 Pro 64" in text
+    assert "&reg;" not in text and "Case Color" not in text and "Optical" not in text and "WWAN" not in text
+    assert "Shipped: 2021-09-30" in text
+    assert "Warranty until: 2024-10-14" in text
 
 
 def test_hp():
@@ -160,18 +175,19 @@ def test_hp():
 
 def test_specs_guesses_vendor():
     r = bot(fake_dell(), fake_lenovo(), fake_hp())
-    assert "ThinkPad" in r.dispatch("specs PF2ABCDE", "U1").text
+    assert "ThinkPad" in r.dispatch("specs R914DXCT", "U1").text
     assert "Z2 G8" in r.dispatch("specs MXL2062PMN", "U1").text
     assert "PowerEdge" in r.dispatch("specs ABC1234", "U1").text
 
 
 def test_specs_multiple_and_errors():
     r = bot(fake_lenovo(), fake_hp())
-    reply = r.dispatch("specs PF2ABCDE, MXL2062PMN", "U1")
+    reply = r.dispatch("specs R9-14DXCT, MXL2062PMN", "U1")
     assert "ThinkPad" in reply.text and "Z2 G8" in reply.text
     assert any(b["type"] == "divider" for b in reply.blocks)
     assert "No match" in r.dispatch("specs ZZZZZZZZ", "U1").text
-    assert "doesn't look like" in r.dispatch("specs !!", "U1").text
+    assert "doesn't look like" in r.dispatch("specs AB", "U1").text
+    assert "Usage" in r.dispatch("specs !!", "U1").text
     assert "Usage" in r.dispatch("specs", "U1").text
 
 

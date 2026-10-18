@@ -3,6 +3,7 @@
 # bot to /opt/slackbot-sr and starts it. Safe to re-run: it updates instead.
 #   curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main/proxmox/install.sh | bash
 set -euo pipefail
+export LC_ALL=C.UTF-8 LANG=C.UTF-8   # quiet perl locale warnings in a fresh LXC
 
 REPO="https://github.com/Realishbird/SlackBot-SR.git"
 DIR="${DIR:-/opt/slackbot-sr}"

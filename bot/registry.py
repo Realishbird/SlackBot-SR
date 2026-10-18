@@ -46,6 +46,8 @@ class Registry:
         if module is None:
             # No keyword: maybe a module recognises the content itself (a pasted file).
             module = next((m for m in self.modules.values() if m.matches(text)), None)
+            if module is None and text:
+                module = next((m for m in self.modules.values() if m.fallback), None)
             if module is not None:
                 args = text
             else:

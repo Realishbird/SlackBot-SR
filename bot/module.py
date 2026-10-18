@@ -19,6 +19,7 @@ class Module:
     summary: str = ""          # one line shown in `help`
     usage: str = ""            # e.g. "dell <service tag>"
     pass_keyword: bool = False  # True: handle() gets "<word used> <args>"
+    fallback: bool = False      # True: takes messages no other module claims (instead of help)
 
     def setup(self) -> None:
         """Called once at startup; read config here. Raise to disable."""

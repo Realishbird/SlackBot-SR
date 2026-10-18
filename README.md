@@ -93,6 +93,34 @@ bot hasn't been invited to need two extra scopes, `files:read` and
 manifest in your Slack app settings, click **Reinstall** when Slack asks.
 Without them, paste the text and `/invite @sr-bot` to the intake channel.
 
+## Chat with a local model
+
+`@sr-bot <anything that isn't a command>` goes to a language model and the
+answer comes back in the thread (`/bot ask <question>` works too). Any
+OpenAI-compatible chat server does: Ollama, LM Studio, llama.cpp's server,
+vLLM, or a hosted API. Set on the admin page:
+
+| Setting | Example |
+|---|---|
+| `LLM_BASE_URL` | `http://192.168.1.50:11434/v1` (Ollama) |
+| `LLM_MODEL` | `llama3.2:3b`, `qwen2.5:7b`, `llama3.1:8b` |
+| `LLM_API_KEY` | blank for Ollama |
+| `LLM_SYSTEM_PROMPT` | who the bot is and how to answer |
+
+Leave the URL blank and chat stays off (unknown messages show help).
+
+The quickest way to a fast model is Ollama on a machine with a GPU, for
+example your desktop: install from https://ollama.com, run `ollama pull
+llama3.2:3b`, and start it listening on the LAN (`OLLAMA_HOST=0.0.0.0
+ollama serve`, or set that variable in the Ollama app's settings), then use
+`http://<that machine's IP>:11434/v1`. Ollama on the LXC itself works too
+(`curl -fsSL https://ollama.com/install.sh | sh` inside it, then
+`http://<lxc ip>:11434/v1`), but CPU-only answers take a while and a 3B
+model wants about 4 GB of RAM on top of the bot.
+
+Each message is answered on its own for now; the model does not see earlier
+messages in the thread.
+
 ### Dell API keys (optional)
 
 With TechDirect API keys the Dell lookup switches to Dell's official API,

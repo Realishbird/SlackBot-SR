@@ -23,7 +23,24 @@ from bot.vendors.http import make_client
 
 SUPPORT = "https://www.dell.com"
 CONFIG_URL = f"{SUPPORT}/support/product-details/en-us/ReviewSpecs/GetOriginalConfiguration"
-SITE_HEADERS = {"Referer": f"{SUPPORT}/support/home/en-us", "Accept": "text/html, */*"}
+WARMUP_URL = f"{SUPPORT}/support/home/en-us"
+# Mimic the XHR the Parts & Repairs page makes.
+SITE_HEADERS = {
+    "Referer": f"{SUPPORT}/support/home/en-us",
+    "Accept": "text/html, */*; q=0.01",
+    "X-Requested-With": "XMLHttpRequest",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
+PAGE_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 # Dell order SKU families. First three digits of skuNumber -> category.
 # None means "packaging, paperwork or a service line; don't show it".
@@ -168,7 +185,13 @@ class Dell(Vendor):
 
     # ---- support site (no keys) ----
     def _lookup_site(self, tag: str) -> SystemSpecs:
-        r = self.http.get(CONFIG_URL, params={"serviceTag": tag, "showOriginalConfig": "true", "showCurrentConfig": "true"}, headers=SITE_HEADERS)
+        params = {"serviceTag": tag, "showOriginalConfig": "true", "showCurrentConfig": "true"}
+        r = self.http.get(CONFIG_URL, params=params, headers=SITE_HEADERS)
+        if r.status_code == 403:
+            # Dell's edge (Akamai) wants the cookies a normal page view sets
+            # before it answers the XHR. Load the support home, then retry.
+            self.warm_up()
+            r = self.http.get(CONFIG_URL, params=params, headers=SITE_HEADERS)
         if r.status_code == 403:
             raise RuntimeError("Dell refused the request (403, bot protection)")
         r.raise_for_status()
@@ -176,6 +199,12 @@ class Dell(Vendor):
         if specs is None:
             raise NotFound(tag)
         return specs
+
+    def warm_up(self):
+        try:
+            return self.http.get(WARMUP_URL, headers=PAGE_HEADERS)
+        except Exception:
+            return None
 
     # ---- TechDirect API ----
     def _lookup_api(self, tag: str) -> SystemSpecs:

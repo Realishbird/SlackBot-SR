@@ -122,9 +122,16 @@ def fake_dell(status=200):
     return Dell(DellClient("id", "secret", "https://dell.test", mock(handler)))
 
 
-def fake_dell_site():
+def fake_dell_site(cold_403=False):
+    seen = {"warm": False}
+
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "www.dell.com"
+        if request.url.path.endswith("/support/home/en-us"):
+            seen["warm"] = True
+            return httpx.Response(200, text="<html>Dell Support</html>", headers={"set-cookie": "bm_sz=abc; Path=/"})
+        if cold_403 and not seen["warm"]:
+            return httpx.Response(403, text="<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD></HTML>")
         tag = request.url.params["serviceTag"]
         return httpx.Response(200, text=DELL_SITE_HTML if tag == "9C4BPM4" else DELL_SITE_EMPTY)
     return Dell(http=mock(handler))
@@ -193,6 +200,11 @@ def test_dell_without_keys_uses_support_site():
         assert junk not in text, junk
     assert "Warranty" not in text
     assert "No match" in bot(fake_dell_site()).dispatch("dell ZZZZZZZ", "U1").text
+
+
+def test_dell_site_warms_up_after_403():
+    text = bot(fake_dell_site(cold_403=True)).dispatch("dell 9C4BPM4", "U1").text
+    assert "Pro Precision 9 T2" in text
 
 
 def test_dell_not_found():

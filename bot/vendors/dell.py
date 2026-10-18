@@ -265,11 +265,12 @@ class Dell(Vendor):
         Dell lets them through, otherwise a note saying why they are missing."""
         report = lambda step, resp: log.info("dell browser: %s -> HTTP %s", step, resp.status)  # noqa: E731
         with self.browser.open(WARRANTY_PAGE) as s:
-            model = ""
+            model, card_answered = "", False
             try:
                 d = s.get(DETAILS_URL.format(tag=tag), headers={"Accept": "text/html, */*; q=0.01"})
                 report("product card", d)
                 if d.status == 200:
+                    card_answered = True  # Dell looked the tag up for us, even if it knows no such tag
                     model = parse_details(d.text)
             except Exception as exc:
                 log.info("dell: product card for %s failed: %r", tag, exc)
@@ -282,12 +283,12 @@ class Dell(Vendor):
             r = self.fetch_config(s, tag, report=report)
             specs = parse_site(r.text, tag) if r.status == 200 else None
             if specs is None:
-                if r.status == 200 or (not model and not warranty_end):
+                if r.status == 200 or (card_answered and not model and not warranty_end):
+                    raise NotFound(tag)          # Dell answered and knows no such tag
+                if not model and not warranty_end:
                     if r.status == 403:
                         raise Blocked(BROWSER_BLOCKED_MSG)
-                    if r.status >= 400:
-                        raise RuntimeError(f"Dell support site answered HTTP {r.status}")
-                    raise NotFound(tag)
+                    raise RuntimeError(f"Dell support site answered HTTP {r.status}")
                 specs = SystemSpecs(vendor=self.name, serial=tag, url=PRODUCT_URL.format(tag=tag), note=PARTS_BLOCKED_NOTE)
             specs.model = model or specs.model
             if warranty_end:

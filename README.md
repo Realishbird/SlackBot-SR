@@ -109,6 +109,12 @@ vLLM, or a hosted API. Set on the admin page:
 
 Leave the URL blank and chat stays off (unknown messages show help).
 
+The model can use the bot's lookups. Ask `@sr-bot what's in the HP with
+serial MXL2062PMN?` and the bot looks the serial up first, lets the model
+answer from the real parts list, and attaches the specs card underneath.
+Models with tool support (qwen3, llama3.1 and up) can also call the lookup
+themselves for serials the bot didn't spot.
+
 Reasoning models such as `qwen3` think before they answer; the bot hides the
 `<think>` part and posts only the answer. For quicker replies, add `/no_think`
 to the end of `LLM_SYSTEM_PROMPT` and qwen3 skips the thinking.

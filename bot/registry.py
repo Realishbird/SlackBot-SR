@@ -15,6 +15,7 @@ class Registry:
         self._lookup: dict[str, Module] = {}
 
     def add(self, module: Module) -> None:
+        module.registry = self
         self.modules[module.keyword] = module
         for word in (module.keyword, *module.aliases):
             self._lookup[word.lower()] = module

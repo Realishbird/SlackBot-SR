@@ -20,6 +20,7 @@ class Module:
     usage: str = ""            # e.g. "dell <service tag>"
     pass_keyword: bool = False  # True: handle() gets "<word used> <args>"
     fallback: bool = False      # True: takes messages no other module claims (instead of help)
+    registry = None             # set when the module is added; lets modules call each other
 
     def setup(self) -> None:
         """Called once at startup; read config here. Raise to disable."""

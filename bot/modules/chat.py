@@ -7,9 +7,15 @@ does my laptop fan spin up when docked?` gets an answer in the thread, and
 `/bot ask <question>` works too. With no URL the module stays off and
 unknown messages show help, as before.
 
+The model can use the bot's own lookups. A serial number in the question
+("what's in MXL2062PMN?") is looked up before the model sees it, and the
+model also gets a `lookup_hardware` tool for serials it spots itself, so it
+answers with the real parts list and attaches the specs card.
+
 Each message is answered on its own (no memory between messages yet); the
 system prompt in LLM_SYSTEM_PROMPT sets the bot's role and tone.
 """
+import json
 import logging
 import re
 
@@ -20,8 +26,30 @@ from bot.module import Module, Reply
 
 log = logging.getLogger(__name__)
 DEFAULT_PROMPT = "You are sr-bot, the IT team's Slack assistant. Answer briefly and plainly."
+TOOL_PROMPT = (
+    "You can look up a computer's factory hardware by its serial number or Dell service tag "
+    "(Dell, HP, Lenovo). When lookup results are given, answer the question from them: name the "
+    "model and list the main parts (CPU, memory, storage, graphics, warranty). Do not ask the user "
+    "to check the vendor's website and do not ask for clarification when the question can be answered."
+)
 MAX_REPLY = 2900  # Slack section block limit is 3000 characters
+MAX_LOOKUPS = 3
 THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.S)
+# Something serial-shaped: 7-14 letters/digits (dashes allowed), with both a letter and a digit.
+SERIALISH = re.compile(r"(?<![A-Za-z0-9])(?=[A-Za-z0-9-]*\d)(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9][A-Za-z0-9-]{5,12}[A-Za-z0-9](?![A-Za-z0-9])")
+
+TOOLS = [{
+    "type": "function",
+    "function": {
+        "name": "lookup_hardware",
+        "description": "Factory hardware specs, model and warranty for a Dell service tag or an HP/Lenovo serial number.",
+        "parameters": {
+            "type": "object",
+            "properties": {"serial": {"type": "string", "description": "The serial number or service tag"}},
+            "required": ["serial"],
+        },
+    },
+}]
 
 
 def strip_thinking(text: str) -> str:
@@ -49,6 +77,7 @@ class Chat(Module):
 
     def __init__(self, base_url: str | None = None, model: str = "", api_key: str = "", system_prompt: str = "", http=None) -> None:
         self.base_url, self.model, self.api_key, self.system_prompt, self.http = base_url, model, api_key, system_prompt, http
+        self.tools_ok = True   # flipped off if the server rejects the tools field
 
     def setup(self) -> None:
         if self.base_url is None:
@@ -62,31 +91,90 @@ class Chat(Module):
         if self.http is None:
             self.http = httpx.Client(timeout=httpx.Timeout(180.0, connect=10.0))
 
-    def complete(self, question: str) -> str:
+    # ----- lookups the model can use -------------------------------------
+    @property
+    def specs(self):
+        return self.registry.modules.get("specs") if self.registry else None
+
+    def find_serials(self, text: str) -> list[str]:
+        """Serial-shaped words that one of the vendors says look like theirs."""
+        specs = self.specs
+        if not specs:
+            return []
+        found: list[str] = []
+        for m in SERIALISH.finditer(text):
+            s = re.sub(r"[^A-Z0-9]", "", m.group(0).upper())
+            if s not in found and any(v.looks_like(s) for v in specs.vendors):
+                found.append(s)
+        return found[:MAX_LOOKUPS]
+
+    def lookup(self, serial: str, user_id: str) -> Reply | None:
+        specs = self.specs
+        if not specs:
+            return None
+        return specs.handle(f"specs {serial}", user_id)
+
+    # ----- the model -----------------------------------------------------
+    def post(self, messages: list[dict], tools: bool) -> dict:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        r = self.http.post(
-            f"{self.base_url}/chat/completions",
-            headers=headers,
-            json={
-                "model": self.model,
-                "messages": [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": question}],
-                "temperature": 0.3,
+        body = {"model": self.model, "messages": messages, "temperature": 0.3,
                 "max_tokens": 1500,  # thinking models spend a good share of this on reasoning
-                "stream": False,
-            },
-        )
+                "stream": False}
+        if tools:
+            body["tools"] = TOOLS
+        r = self.http.post(f"{self.base_url}/chat/completions", headers=headers, json=body)
+        if tools and r.status_code == 400:
+            # Server or model without tool support: carry on without the tool.
+            log.info("chat model rejected tools, continuing without: %s", r.text[:200])
+            self.tools_ok = False
+            return self.post(messages, tools=False)
         r.raise_for_status()
-        data = r.json()
-        return strip_thinking(data["choices"][0]["message"].get("content") or "")
+        return r.json()["choices"][0]["message"]
+
+    def complete(self, question: str, user_id: str) -> tuple[str, list[Reply]]:
+        """Answer text plus the lookup cards that fed it."""
+        cards: list[Reply] = []
+        seen: set[str] = set()
+        messages = [{"role": "system", "content": self.system_prompt}]
+        if self.specs:
+            messages.append({"role": "system", "content": TOOL_PROMPT})
+        for serial in self.find_serials(question):
+            card = self.lookup(serial, user_id)
+            if card:
+                seen.add(serial)
+                cards.append(card)
+                messages.append({"role": "system", "content": f"Lookup results for {serial}:\n{card.text}"})
+        messages.append({"role": "user", "content": question})
+
+        use_tools = bool(self.specs) and self.tools_ok
+        for _ in range(MAX_LOOKUPS + 1):
+            msg = self.post(messages, tools=use_tools)
+            calls = msg.get("tool_calls") or []
+            if not calls:
+                return strip_thinking(msg.get("content") or ""), cards
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
+            for call in calls:
+                try:
+                    serial = json.loads(call["function"].get("arguments") or "{}").get("serial", "")
+                except (ValueError, AttributeError):
+                    serial = ""
+                serial = re.sub(r"[^A-Z0-9]", "", str(serial).upper())
+                card = self.lookup(serial, user_id) if serial else None
+                result = card.text if card else f"No lookup possible for {serial!r}."
+                if card and serial not in seen:
+                    seen.add(serial)
+                    cards.append(card)
+                messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
+        return strip_thinking(msg.get("content") or ""), cards
 
     def handle(self, args: str, user_id: str) -> Reply:
         question = args.strip()
         if not question:
-            return Reply(f"Ask me something, e.g. `ask what does a PERC H755 do?`")
+            return Reply("Ask me something, e.g. `ask what does a PERC H755 do?`")
         try:
-            answer = self.complete(question)
+            answer, cards = self.complete(question, user_id)
         except httpx.HTTPStatusError as exc:
             log.warning("chat model answered HTTP %s: %s", exc.response.status_code, exc.response.text[:300])
             detail = exc.response.text[:200].strip()
@@ -95,13 +183,18 @@ class Chat(Module):
         except httpx.HTTPError as exc:
             log.warning("chat model unreachable: %r", exc)
             return Reply(f":warning: Couldn't reach the chat model at `{self.base_url}`. Is the server up?")
-        except (KeyError, IndexError, ValueError) as exc:
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
             log.warning("chat model gave an unexpected reply: %r", exc)
             return Reply(":warning: The chat model answered in a shape I don't understand.")
-        if not answer:
+        if not answer and not cards:
             return Reply("The model had nothing to say (or spent its whole reply thinking). Try rephrasing, "
                          "or add `/no_think` to the system prompt on the admin page.")
-        text = to_mrkdwn(answer)
+        text = to_mrkdwn(answer) or "Here's what I found:"
         if len(text) > MAX_REPLY:
             text = text[:MAX_REPLY].rsplit("\n", 1)[0] + "\n_(cut, the answer was longer)_"
-        return Reply(text)
+        blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
+        for card in cards:
+            blocks.append({"type": "divider"})
+            blocks += card.blocks or [{"type": "section", "text": {"type": "mrkdwn", "text": card.text[:2900]}}]
+        full = text + "".join(f"\n\n---\n\n{c.text}" for c in cards)
+        return Reply(text=full, blocks=blocks)

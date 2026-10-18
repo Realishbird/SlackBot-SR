@@ -10,7 +10,7 @@ import html
 import json
 import re
 
-from bot.vendors.base import NotFound, SystemSpecs, Vendor, categorize
+from bot.vendors.base import Blocked, NotFound, SystemSpecs, Vendor, categorize
 from bot.vendors.http import make_client
 
 SUPPORT = "https://pcsupport.lenovo.com"
@@ -63,7 +63,7 @@ class Lenovo(Vendor):
     def lookup(self, serial: str) -> SystemSpecs:
         r = self.http.get(f"{SUPPORT}/us/en/api/v4/mse/getproducts", params={"productId": serial}, headers=HEADERS)
         if r.status_code == 403:
-            raise RuntimeError("Lenovo refused the request (403, bot protection)")
+            raise Blocked("Lenovo's website blocked the lookup (bot protection).")
         r.raise_for_status()
         data = r.json()
         product = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}

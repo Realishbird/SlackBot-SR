@@ -41,6 +41,10 @@ class NotFound(Exception):
     """The vendor has no record of this serial."""
 
 
+class Blocked(Exception):
+    """The vendor's site refused the bot; the message says what would help."""
+
+
 @dataclass
 class SystemSpecs:
     vendor: str

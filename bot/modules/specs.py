@@ -11,7 +11,7 @@ import re
 
 from bot import vendors as vendors_pkg
 from bot.module import Module, Reply
-from bot.vendors.base import CATEGORIES, NotFound, SystemSpecs, Vendor
+from bot.vendors.base import CATEGORIES, Blocked, NotFound, SystemSpecs, Vendor
 
 log = logging.getLogger(__name__)
 SERIAL = re.compile(r"^[A-Z0-9]{5,12}$")
@@ -105,15 +105,21 @@ class Specs(Module):
         else:
             candidates = sorted(self.vendors, key=lambda v: not v.looks_like(serial))
         errors = []
+        blocked = []
         for vendor in candidates:
             try:
                 return render(vendor.lookup(serial))
             except NotFound:
                 continue
+            except Blocked as exc:
+                log.warning("%s lookup for %s blocked: %s", vendor.keyword, serial, exc)
+                blocked.append(str(exc))
             except Exception as exc:
                 log.warning("%s lookup for %s failed: %r", vendor.keyword, serial, exc)
                 errors.append(vendor.name)
         tried = ", ".join(v.name for v in candidates)
-        if errors:
-            return Reply(f":warning: Couldn't reach {', '.join(errors)} while looking up `{serial}`. Check the container logs.")
+        if blocked and only:
+            return Reply(f":no_entry: {blocked[0]}")
+        if errors or blocked:
+            return Reply(f":warning: Couldn't reach {', '.join(errors + [b.split(' ')[0] for b in blocked])} while looking up `{serial}`. Check the container logs.")
         return Reply(f"No match for `{serial}` at {tried}.")

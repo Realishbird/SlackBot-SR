@@ -256,9 +256,12 @@ def test_specs_multiple_and_errors():
     assert "Usage" in r.dispatch("specs", "U1").text
 
 
-def test_bot_protection_403_is_reported_as_unreachable():
+def test_bot_protection_403_is_explained():
     blocked = Lenovo(mock(lambda req: httpx.Response(403, text="Access Denied")))
-    assert "Couldn't reach Lenovo" in bot(blocked).dispatch("lenovo R914DXCT", "U1").text
+    assert "Lenovo's website blocked the lookup" in bot(blocked).dispatch("lenovo R914DXCT", "U1").text
+    dell = Dell(http=mock(lambda req: httpx.Response(403, text="Access Denied")))
+    text = bot(dell).dispatch("dell 9C4BPM4", "U1").text
+    assert "TechDirect API keys" in text
 
 
 def test_vendor_outage_is_reported():

@@ -10,7 +10,7 @@ import re
 from collections import OrderedDict
 from html.parser import HTMLParser
 
-from bot.vendors.base import NotFound, SystemSpecs, Vendor
+from bot.vendors.base import Blocked, NotFound, SystemSpecs, Vendor
 from bot.vendors.http import make_client
 
 API = "https://partsurfer.hpcloud.hp.com/bff/proxy/get"
@@ -148,7 +148,7 @@ class HP(Vendor):
     def lookup(self, serial: str) -> SystemSpecs:
         r = self.http.get(API, params={"input": f"/Search/GenericSearch/{serial}/country/US/usertype/EXT"}, headers=HEADERS)
         if r.status_code == 403:
-            raise RuntimeError("HP refused the request (403, bot protection)")
+            raise Blocked("HP's website blocked the lookup (bot protection).")
         r.raise_for_status()
         try:
             specs = parse_api(r.json(), serial)

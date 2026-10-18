@@ -18,7 +18,7 @@ import time
 import httpx
 
 from bot.config import env
-from bot.vendors.base import NotFound, SystemSpecs, Vendor, categorize
+from bot.vendors.base import Blocked, NotFound, SystemSpecs, Vendor, categorize
 from bot.vendors.http import make_client
 
 SUPPORT = "https://www.dell.com"
@@ -193,7 +193,8 @@ class Dell(Vendor):
             self.warm_up()
             r = self.http.get(CONFIG_URL, params=params, headers=SITE_HEADERS)
         if r.status_code == 403:
-            raise RuntimeError("Dell refused the request (403, bot protection)")
+            raise Blocked("Dell's website blocked the lookup (its bot protection wants a real browser). "
+                          "Add Dell TechDirect API keys on the admin page to look up Dell tags.")
         r.raise_for_status()
         specs = parse_site(r.text, tag)
         if specs is None:

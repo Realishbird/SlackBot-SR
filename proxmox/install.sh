@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run inside a Debian/Ubuntu LXC or VM (as root). Installs Docker, clones the
 # bot to /opt/slackbot-sr and starts it. Safe to re-run: it updates instead.
-#   curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main/proxmox/install.sh | bash
 set -euo pipefail
 
-REPO="https://github.com/Realishbird/slackbot-sr.git"
+REPO="https://github.com/Realishbird/SlackBot-SR.git"
 DIR="${DIR:-/opt/slackbot-sr}"
 
 [[ $EUID -eq 0 ]] || { echo "Run as root." >&2; exit 1; }

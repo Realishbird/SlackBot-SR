@@ -54,7 +54,7 @@ Create the Slack app first (above) so you have both tokens. Then in the
 Proxmox host shell (Datacenter > your node > Shell):
 
 ```sh
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/create-lxc.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main/proxmox/create-lxc.sh)"
 ```
 
 It asks for your Slack tokens (and Dell keys, optional), creates an
@@ -67,7 +67,7 @@ The variables are listed at the top of `proxmox/create-lxc.sh`.
 To update later, run this inside the LXC (`pct enter <id>`):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main/proxmox/install.sh | bash
 ```
 
 `install.sh` also works on its own in an LXC or VM you made yourself.
@@ -95,7 +95,7 @@ you'd rather not run Docker inside an LXC.
 **Then, in either one:**
 
 ```sh
-git clone https://github.com/Realishbird/slackbot-sr.git
+git clone https://github.com/Realishbird/SlackBot-SR.git
 cd slackbot-sr
 cp .env.example .env
 nano .env            # fill in the tokens

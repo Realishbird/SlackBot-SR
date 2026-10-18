@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run on the Proxmox host. Creates a Debian 12 LXC and installs the bot in it.
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/slackbot-sr/main/proxmox/create-lxc.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main/proxmox/create-lxc.sh)"
 # Override any default by setting it first, e.g. STORAGE=local-zfs CTID=150 bash create-lxc.sh
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/Realishbird/slackbot-sr/main"
+REPO_RAW="https://raw.githubusercontent.com/Realishbird/SlackBot-SR/main"
 CTID="${CTID:-$(pvesh get /cluster/nextid)}"
 CT_NAME="${CT_NAME:-slackbot}"
 STORAGE="${STORAGE:-local-lvm}"          # where the container disk goes

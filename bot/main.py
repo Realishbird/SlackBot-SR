@@ -125,9 +125,18 @@ def build_app(registry: Registry) -> App:
         reply = registry.dispatch(f"{text}\n{files_text}", event["user"])
         deliver(reply, say, client, event.get("channel", ""), **kw)
 
+    in_thread = (env("REPLY_IN_THREAD", "off") or "off").strip().lower() in ("on", "true", "yes", "1")
+
     @app.event("app_mention")
     def on_mention(event, say, client):
-        answer(event, say, client, MENTION.sub("", event.get("text", "")), thread_ts=event.get("thread_ts") or event["ts"])
+        # Answer in the channel; inside an existing thread, stay in that thread.
+        # REPLY_IN_THREAD=on starts a thread under every mention instead.
+        kw = {}
+        if event.get("thread_ts"):
+            kw["thread_ts"] = event["thread_ts"]
+        elif in_thread:
+            kw["thread_ts"] = event["ts"]
+        answer(event, say, client, MENTION.sub("", event.get("text", "")), **kw)
 
     @app.event("message")
     def on_dm(event, say, client):

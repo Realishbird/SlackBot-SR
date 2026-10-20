@@ -39,6 +39,7 @@ EDITABLE = [
     ("DELL_CLIENT_SECRET", "Dell TechDirect client secret"),
     ("DELL_BROWSER", "Dell: use the built-in hidden Chromium when no API keys (auto or off)"),
     ("INTAKE_CHANNEL", "Channel to post pasted Dell exports to (ID like C0123... or #name; blank = DM only)"),
+    ("REPLY_IN_THREAD", "Answer @mentions in a thread under the message (on) or in the channel (off)"),
     ("LLM_BASE_URL", "Chat model server, OpenAI-compatible (e.g. http://192.168.1.50:11434/v1 for Ollama; blank = chat off)"),
     ("LLM_MODEL", "Chat model name (e.g. llama3.2:3b, qwen2.5:7b)"),
     ("LLM_VISION_MODEL", "Vision model for reading serials off photos (e.g. qwen2.5vl:7b; blank = off)"),

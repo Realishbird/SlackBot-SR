@@ -120,6 +120,7 @@ vLLM, or a hosted API. Set on the admin page:
 
 | Setting | Example |
 |---|---|
+| `REPLY_IN_THREAD` | `off` answers @mentions in the channel, `on` in a thread under the message |
 | `LLM_BASE_URL` | `http://192.168.1.50:11434/v1` (Ollama) |
 | `LLM_MODEL` | `qwen3:8b`, `llama3.2:3b`, `llama3.1:8b` (whatever `ollama list` shows) |
 | `LLM_API_KEY` | blank for Ollama |

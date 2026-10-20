@@ -21,6 +21,7 @@ class Module:
     pass_keyword: bool = False  # True: handle() gets "<word used> <args>"
     fallback: bool = False      # True: takes messages no other module claims (instead of help)
     registry = None             # set when the module is added; lets modules call each other
+    accepts_images: bool = False  # True: handle_images() gets photos dropped on the bot
 
     def setup(self) -> None:
         """Called once at startup; read config here. Raise to disable."""
@@ -32,3 +33,14 @@ class Module:
 
     def handle(self, args: str, user_id: str) -> Reply:
         raise NotImplementedError
+
+    def handle_images(self, images: list["Image"], text: str, user_id: str) -> Reply:
+        """Called with the images attached to a message (accepts_images modules only)."""
+        raise NotImplementedError
+
+
+@dataclass
+class Image:
+    name: str
+    mimetype: str
+    data: bytes

@@ -6,6 +6,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bot.config import enabled_modules, env
+from bot.module import Image
 from bot.registry import Registry
 
 logging.basicConfig(level=env("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -13,6 +14,9 @@ logging.basicConfig(level=env("LOG_LEVEL", "INFO"), format="%(asctime)s %(leveln
 MENTION = re.compile(r"<@[A-Z0-9]+>")
 TEXT_FILE_TYPES = {"csv", "text", "txt", "tsv"}
 MAX_FILE_BYTES = 512 * 1024
+IMAGE_TYPES = {"jpg", "jpeg", "png", "webp", "gif", "heic"}
+MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_IMAGES = 3
 
 
 FILES_HINT = (":paperclip: I couldn't read the attached file. Reading dropped files needs the Slack app's `files:read` "
@@ -51,6 +55,39 @@ def attached_text(event: dict, token: str) -> tuple[str, bool]:
     return "\n".join(parts), failed
 
 
+def attached_images(event: dict, token: str) -> tuple[list[Image], bool]:
+    """(photos attached to the message, whether one could not be fetched)."""
+    log = logging.getLogger(__name__)
+    images, failed = [], False
+    for f in event.get("files") or []:
+        kind = (f.get("filetype") or "").lower()
+        mime = f.get("mimetype") or ""
+        if kind not in IMAGE_TYPES and not mime.startswith("image/"):
+            continue
+        if len(images) >= MAX_IMAGES:
+            break
+        if int(f.get("size") or 0) > MAX_IMAGE_BYTES:
+            log.warning("attached image %s is too big (%s bytes)", f.get("name"), f.get("size"))
+            failed = True
+            continue
+        url = f.get("url_private_download") or f.get("url_private")
+        if not url:
+            failed = True
+            continue
+        try:
+            r = httpx.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=60, follow_redirects=True)
+        except httpx.HTTPError as exc:
+            log.warning("could not fetch attached image %s: %s", f.get("name"), exc)
+            failed = True
+            continue
+        if r.status_code == 200 and "text/html" not in r.headers.get("content-type", ""):
+            images.append(Image(f.get("name") or "photo", mime or r.headers.get("content-type", "image/jpeg"), r.content))
+        else:
+            log.warning("attached image %s: HTTP %s %s (missing files:read scope?)", f.get("name"), r.status_code, r.headers.get("content-type", ""))
+            failed = True
+    return images, failed
+
+
 def build_app(registry: Registry) -> App:
     token = env("SLACK_BOT_TOKEN", required=True)
     app = App(token=token)
@@ -73,8 +110,16 @@ def build_app(registry: Registry) -> App:
         respond(text=reply.text, blocks=reply.blocks or None, response_type="in_channel")
 
     def answer(event, say, client, text: str, **kw) -> None:
+        images, image_failed = attached_images(event, token)
+        if images:
+            reply = registry.dispatch_images(images, text, event["user"])
+            if reply is None:
+                say(text=":camera: I can't read photos yet: no module with a vision model is loaded. Type the serial instead.", **kw)
+            else:
+                deliver(reply, say, client, event.get("channel", ""), **kw)
+            return
         files_text, unreadable = attached_text(event, token)
-        if unreadable and not files_text:
+        if (unreadable or image_failed) and not files_text:
             say(text=FILES_HINT, **kw)
             return
         reply = registry.dispatch(f"{text}\n{files_text}", event["user"])

@@ -40,6 +40,17 @@ class Registry:
                 self.add(instance)
                 log.info("Loaded module %s", cls.keyword)
 
+    def dispatch_images(self, images: list, text: str, user_id: str) -> Reply | None:
+        """Hand dropped photos to the module that takes them; None if none does."""
+        module = next((m for m in self.modules.values() if m.accepts_images), None)
+        if module is None:
+            return None
+        try:
+            return module.handle_images(images, (text or "").strip(), user_id)
+        except Exception:
+            log.exception("Module %s failed on images", module.keyword)
+            return Reply(f":warning: `{module.keyword}` hit an error. Check the container logs.")
+
     def dispatch(self, text: str, user_id: str) -> Reply:
         text = (text or "").strip()
         keyword, _, args = text.partition(" ")

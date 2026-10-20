@@ -93,6 +93,24 @@ bot hasn't been invited to need two extra scopes, `files:read` and
 manifest in your Slack app settings, click **Reinstall** when Slack asks.
 Without them, paste the text and `/invite @sr-bot` to the intake channel.
 
+## Read a serial off a photo
+
+Drop a photo of the service tag or serial sticker on the bot (a DM, or
+`@sr-bot` with the picture attached). A vision model reads the serial,
+the bot checks it is serial-shaped, runs the normal lookup and posts the
+specs card, so a tech can photograph a label at intake and have the parts
+list before the box is unpacked.
+
+It uses the same server as chat (`LLM_BASE_URL`) with a model that can
+see, named in `LLM_VISION_MODEL` on the admin page. On the Ollama machine:
+
+    ollama pull qwen2.5vl:7b
+
+`qwen3-vl:8b`, `llama3.2-vision` and `minicpm-v` work too. Blank turns photo
+reading off. Photos need the Slack app's `files:read` scope (in the
+manifest). Big phone photos are shrunk to 1600 px before upload; a close,
+straight-on shot of the sticker reads best.
+
 ## Chat with a local model
 
 `@sr-bot <anything that isn't a command>` goes to a language model and the

@@ -418,3 +418,12 @@ def test_discover(monkeypatch):
     r3 = Registry()
     r3.discover({"nothing"})
     assert set(r3.modules) == {"help"}
+
+
+def test_big_photos_use_slacks_thumbnail():
+    from bot.main import image_url
+    small = {"size": 500_000, "url_private_download": "https://x/orig", "thumb_1024": "https://x/t1024"}
+    big = {"size": 19_690_445, "url_private_download": "https://x/orig", "thumb_1024": "https://x/t1024", "thumb_720": "https://x/t720"}
+    assert image_url(small) == "https://x/orig"
+    assert image_url(big) == "https://x/t1024"
+    assert image_url({"size": 19_690_445, "url_private": "https://x/orig"}) == "https://x/orig"

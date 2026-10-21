@@ -15,8 +15,9 @@ MENTION = re.compile(r"<@[A-Z0-9]+>")
 TEXT_FILE_TYPES = {"csv", "text", "txt", "tsv"}
 MAX_FILE_BYTES = 512 * 1024
 IMAGE_TYPES = {"jpg", "jpeg", "png", "webp", "gif", "heic"}
-MAX_IMAGE_BYTES = 12 * 1024 * 1024
+MAX_IMAGE_BYTES = 60 * 1024 * 1024
 MAX_IMAGES = 3
+BIG_IMAGE = 2 * 1024 * 1024   # above this, fetch Slack's 1024px thumbnail instead of the original
 
 
 FILES_HINT = (":paperclip: I couldn't read the attached file. Reading dropped files needs the Slack app's `files:read` "
@@ -55,6 +56,15 @@ def attached_text(event: dict, token: str) -> tuple[str, bool]:
     return "\n".join(parts), failed
 
 
+def image_url(f: dict) -> str:
+    """Phone photos run to 20 MB; Slack keeps a 1024px copy, plenty to read a sticker."""
+    if int(f.get("size") or 0) > BIG_IMAGE:
+        for key in ("thumb_1024", "thumb_960", "thumb_800", "thumb_720"):
+            if f.get(key):
+                return f[key]
+    return f.get("url_private_download") or f.get("url_private") or ""
+
+
 def attached_images(event: dict, token: str) -> tuple[list[Image], bool]:
     """(photos attached to the message, whether one could not be fetched)."""
     log = logging.getLogger(__name__)
@@ -66,12 +76,12 @@ def attached_images(event: dict, token: str) -> tuple[list[Image], bool]:
             continue
         if len(images) >= MAX_IMAGES:
             break
-        if int(f.get("size") or 0) > MAX_IMAGE_BYTES:
-            log.warning("attached image %s is too big (%s bytes)", f.get("name"), f.get("size"))
+        url = image_url(f)
+        if not url:
             failed = True
             continue
-        url = f.get("url_private_download") or f.get("url_private")
-        if not url:
+        if int(f.get("size") or 0) > MAX_IMAGE_BYTES and url == (f.get("url_private_download") or f.get("url_private")):
+            log.warning("attached image %s is too big (%s bytes) and has no thumbnail", f.get("name"), f.get("size"))
             failed = True
             continue
         try:

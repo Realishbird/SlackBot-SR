@@ -91,6 +91,7 @@ def attached_images(event: dict, token: str) -> tuple[list[Image], bool]:
 def build_app(registry: Registry) -> App:
     token = env("SLACK_BOT_TOKEN", required=True)
     app = App(token=token)
+    registry.slack = app.client
     command = env("SLASH_COMMAND", "/bot")
 
     def deliver(reply, say, client, channel: str, **kw) -> None:

@@ -93,6 +93,24 @@ bot hasn't been invited to need two extra scopes, `files:read` and
 manifest in your Slack app settings, click **Reinstall** when Slack asks.
 Without them, paste the text and `/invite @sr-bot` to the intake channel.
 
+## Intake: a channel per device
+
+DM the bot a photo of the serial sticker with the word `intake` (or type
+`intake <serial>`), and it looks the machine up, creates a public channel
+named after it (`hp-z2-g8-tower`), adds you plus anyone you @mentioned plus
+the people in `INTAKE_INVITE`, sets the topic to the model and serial, and
+posts the specs card in the new channel.
+
+    intake                      (photo attached)
+    intake @alice @bob          (photo attached; also add alice and bob)
+    intake 9C4BPM4 @alice       (typed serial)
+    intake name=brian-laptop    (pick the channel name yourself)
+
+If the name is taken the serial's last four characters are appended.
+`INTAKE_PREFIX` (admin page) puts a prefix on every name, e.g. `dev-`.
+Needs the `channels:manage`, `channels:write.invites` and `users:read`
+scopes from the manifest (reinstall the app after updating it).
+
 ## Read a serial off a photo
 
 Drop a photo of the service tag or serial sticker on the bot (a DM, or

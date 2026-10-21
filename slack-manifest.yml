@@ -20,6 +20,9 @@ oauth_config:
       - im:history
       - files:read          # read CSV files dropped in a DM (the Dell export)
       - chat:write.public   # post the tidy result to a channel without being invited first
+      - channels:manage     # `intake`: create a channel per device and set its topic
+      - channels:write.invites  # `intake`: add people to that channel
+      - users:read          # `intake`: turn @handles in INTAKE_INVITE into user IDs
 settings:
   event_subscriptions:
     bot_events:

@@ -46,7 +46,7 @@ class FakeSlack:
     def conversations_setTopic(self, channel, topic):
         self.calls.append(("topic", channel, topic))
 
-    def chat_postMessage(self, channel, text, blocks=None):
+    def chat_postMessage(self, channel, text, blocks=None, **kw):
         self.calls.append(("post", channel, text))
 
     def users_list(self, limit=200, cursor=None):

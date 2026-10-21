@@ -196,8 +196,8 @@ class Intake(Module):
         except Exception as exc:
             log.info("intake: setTopic failed: %s", exc)
         try:
-            self.slack.chat_postMessage(channel=channel, text=card.text,
-                                        blocks=(card.blocks or None))
+            self.slack.chat_postMessage(channel=channel, text=card.text, blocks=(card.blocks or None),
+                                        unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             log.warning("intake: posting specs failed: %s", exc)
             not_added.append("(specs post failed)")
